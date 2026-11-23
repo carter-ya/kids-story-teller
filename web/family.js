@@ -1,8 +1,9 @@
 const capabilities=[['write','写故事','pen'],['voice','讲故事','music']];
 const typeName=type=>type==='write'?'写故事':'讲故事';
 const configsFor=type=>(cloud?[...cloudServices,...(cloudAdult==='owner'?state.configs:[])]:state.configs).filter(c=>c.type===type);
+const memberCount=()=>state.people.length+(cloud?cloudAccounts.filter(a=>!a.pending).length:0);
 function family(){
-  const count=state.people.length+(cloud?cloudAccounts.filter(a=>!a.pending).length:0),size=used();
+  const count=memberCount(),size=used();
   let inner='';
   if(familyTab==='members'){
     inner='<div class="card"><div class="row between"><h2>我的家人</h2>'+((!cloud||cloudAdult==='owner')?act('member','添加家人','primary'):'')+'</div>'+state.people.map(p=>`<div class="list-row"><span class="avatar">${icon(p.kind==='孩子'?'rabbit':'sun',27)}</span><div class="grow"><strong>${html(p.name)}</strong><div class="meta">${p.id==='owner'?'家庭管理员':p.kind}</div></div>${p.kind==='孩子'?act('kid-prefs','听故事偏好','secondary',p.id):''}${p.id==='owner'||(cloud&&cloudAdult!=='owner')?'':act('remove-member','移除','light',p.id)}</div>`).join('')+'</div>';
@@ -26,11 +27,17 @@ function serviceList(){
 pages.set('family',family);
 on('lock',()=>{if(cloud)return changeCloudRole(state.kid);stopPlayback();adult=false;sessionStorage.removeItem('post-office-adult');go('shelf')});on('family-tab',id=>{familyTab=id;render()});
 on('member',()=>{
-  if(state.people.length>=20){notify('家人已满 20 人，可先在「家人」中整理。');return;}
-  dialog('添加家人',pick('kind','身份',cloud?[['孩子','孩子','rabbit']]:[['孩子','孩子','rabbit'],['成人','成人照护者','sun']],'孩子')+input('name','昵称','',24),submitBtn('添加'),d=>{
+  if(memberCount()>=20){notify('家人已满 20 人，可先在「家人」中整理。');return;}
+  dialog('添加家人',pick('kind','身份',cloud?[['孩子','孩子','rabbit']]:[['孩子','孩子','rabbit'],['成人','成人照护者','sun']],'孩子')+input('name','昵称','',24),submitBtn('添加'),async d=>{
     const name=d.get('name').trim();if(!name)throw Error('请输入昵称。');
-    if(state.people.length>=20)throw Error('本家庭最多可容纳 20 人。');
-    if(d.get('kind')==='成人'&&cloud)state.people.push({id:uid(),name,kind:'成人'});
+    if(memberCount()>=20)throw Error('本家庭最多可容纳 20 人。');
+    if(cloud){
+      await flushCloud();
+      const member={id:uid(),name,kind:'孩子'};
+      const next={...state,people:[...state.people,member]};
+      const row=await api('library','PUT',{revision:cloudRevision,state:next});
+      cloudRevision=row.revision;state.people.push(member);accepted();render();return;
+    }
     else if(d.get('kind')==='成人'){(state.invites||=[]).push({id:uid(),name});notify('本地邀请已创建，可在等待加入列表预演接受。');}
     else state.people.push({id:uid(),name,kind:'孩子'});
     save();accepted();render();
@@ -38,7 +45,7 @@ on('member',()=>{
 });
 on('cancel-invite',id=>{state.invites=state.invites.filter(i=>i.id!==id);save();render()});
 on('accept-invite',id=>{
-  if(state.people.length>=20){notify('家人已满，先整理成员名额再接受邀请。');return;}
+  if(memberCount()>=20){notify('家人已满，先整理成员名额再接受邀请。');return;}
   const invite=state.invites.find(i=>i.id===id);if(!invite)return;
   state.people.push({...invite,kind:'成人'});state.invites=state.invites.filter(i=>i.id!==id);save();render();notify('已加入家庭。');
 });
