@@ -5,7 +5,7 @@ function family(){
   const count=state.people.length+(cloud?cloudAccounts.filter(a=>!a.pending).length:0),size=used();
   let inner='';
   if(familyTab==='members'){
-    inner='<div class="card"><div class="row between"><h2>我的家人</h2>'+((!cloud||cloudAdult==='owner')?act('member','添加家人','primary'):'')+'</div>'+state.people.map(p=>`<div class="list-row"><span class="avatar">${icon(p.kind==='孩子'?'rabbit':'sun',27)}</span><div class="grow"><strong>${html(p.name)}</strong><div class="meta">${p.id==='owner'?'家庭管理员':p.kind}</div></div>${p.kind==='孩子'?act('kid-prefs','听故事偏好','secondary',p.id):''}${p.id==='owner'?'':act('remove-member','移除','light',p.id)}</div>`).join('')+'</div>';
+    inner='<div class="card"><div class="row between"><h2>我的家人</h2>'+((!cloud||cloudAdult==='owner')?act('member','添加家人','primary'):'')+'</div>'+state.people.map(p=>`<div class="list-row"><span class="avatar">${icon(p.kind==='孩子'?'rabbit':'sun',27)}</span><div class="grow"><strong>${html(p.name)}</strong><div class="meta">${p.id==='owner'?'家庭管理员':p.kind}</div></div>${p.kind==='孩子'?act('kid-prefs','听故事偏好','secondary',p.id):''}${p.id==='owner'||(cloud&&cloudAdult!=='owner')?'':act('remove-member','移除','light',p.id)}</div>`).join('')+'</div>';
     if(cloud){
       inner+='<div class="card"><h3>成人账户与邀请</h3>'+cloudAccounts.map(a=>'<div class="list-row"><span class="grow">'+html(a.name)+(a.pending?' · 等待加入':' · 成人')+'</span>'+(cloudAdult==='owner'?act('revoke-adult','撤销访问','light',a.id):'')+'</div>').join('')+(cloudAdult==='owner'?act('invite-adult','邀请成人')+act('rotate-owner','更换管理员登录码','light'):'')+'</div>';
     }
@@ -54,8 +54,8 @@ on('remove-member',id=>{
 });
 on('kid-prefs',id=>{
   const p=state.people.find(x=>x.id===id),pref=state.prefs[id]||{};
-  dialog('听故事偏好',input('name','昵称',p.name,24)+pick('age','年龄段',[['不限','不限'],['3–5 岁','3–5 岁'],['6–8 岁','6–8 岁'],['9 岁以上','9 岁以上']],pref.age)+pick('voice','默认声音',voices,pref.voice)+input('avoid','希望避开的内容',pref.avoid||'')+'<label class="row"><input type="checkbox" name="continuous" '+(pref.continuous?'checked':'')+'>播完后继续下一篇</label>',submitBtn('保存偏好'),d=>{
-    const name=d.get('name').trim();if(!name)throw Error('请填写昵称。');p.name=name;
+  dialog('听故事偏好',((cloud&&cloudAdult!=='owner')?'<p>'+html(p.name)+'</p>':input('name','昵称',p.name,24))+pick('age','年龄段',[['不限','不限'],['3–5 岁','3–5 岁'],['6–8 岁','6–8 岁'],['9 岁以上','9 岁以上']],pref.age)+pick('voice','默认声音',voices,pref.voice)+input('avoid','希望避开的内容',pref.avoid||'')+'<label class="row"><input type="checkbox" name="continuous" '+(pref.continuous?'checked':'')+'>播完后继续下一篇</label>',submitBtn('保存偏好'),d=>{
+    if(d.has('name')&&(!cloud||cloudAdult==='owner')){const name=d.get('name').trim();if(!name)throw Error('请填写昵称。');p.name=name;}
     state.prefs[id]={age:d.get('age'),voice:d.get('voice'),avoid:d.get('avoid'),continuous:d.has('continuous')};save();accepted();render();
   });
 });

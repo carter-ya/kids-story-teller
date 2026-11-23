@@ -46,8 +46,10 @@ export async function apiSession(req,env,path,session){
   }
   if(path==='/api/session/rotate'){
     owner(session);const pass='story-'+newToken();
+    const current=await shelf(env,session.family);
+    const count=current.state?.people.length||2;
     await env.DB.batch([
-      env.DB.prepare('UPDATE families SET pass_hash=?,personal_login=1 WHERE id=?').bind(await hash(pass),session.family),
+      env.DB.prepare('UPDATE families SET pass_hash=?,personal_login=1,profile_count=CASE WHEN revision=? THEN ? ELSE profile_count END WHERE id=?').bind(await hash(pass),current.revision,count,session.family),
       env.DB.prepare("DELETE FROM sessions WHERE family=? AND adult='owner' AND token<>?").bind(session.family,session.token)
     ]);
     return json({pass});

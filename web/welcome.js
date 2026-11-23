@@ -69,7 +69,7 @@ pages.set('guide',()=>`<div class="wrap section-page">${coach(1)}<form id="guide
   ${input('nickname','小听众的昵称',child().name,24)}${submitBtn('下一步，写故事')}</form></div>`);
 forms.set('guide-family',d=>{
   const name=d.get('nickname').trim();if(!name)throw Error('请填写一个昵称。');
-  child().name=name;state.tourV2={step:2};save();go('create');
+  if(!cloud||cloudAdult==='owner')child().name=name;state.tourV2={step:2};save();go('create');
 });
 function advanceTour(from,to,id){
   if(!activeTour()||state.tourV2.step!==from)return;
