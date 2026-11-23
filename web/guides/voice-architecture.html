@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>晚安邮局 · 语音合成技术设计</title><link rel="icon" href="../assets/postmark.svg"><link rel="stylesheet" href="../style.css">
+<style>main{margin:auto;max-width:58rem;padding:24px 5% 60px}h1{font-size:2.2rem}h2{margin:2rem 0 1rem}p,li,blockquote{margin:.8rem 0}table{border-collapse:collapse;width:100%}th,td{border:1px solid var(--line);padding:8px;text-align:left;vertical-align:top}a{color:var(--green);text-decoration:underline}code,td{overflow-wrap:anywhere}blockquote{border-left:4px solid var(--honey);padding-left:15px}nav{margin-bottom:24px;flex-wrap:wrap}</style>
+<main><nav><a href="../">晚安邮局</a> · <a href="voice-product.html">声音产品设计</a> · <a href="voice-architecture.html">语音合成技术</a></nav><h1>晚安邮局 · 语音合成技术设计</h1>
+<p><strong>目标</strong>是将家长确认过的稿件生成可回听、可替换、可授权的固定录音。当前仓库提供静态前端、预录样音和设备朗读。本设计用于前端体验确认后的后端实现。正式声音的选型由<a href="voice-product.html">产品听审标准</a>决定。</p>
+<h2>当前前端的两条声音路径</h2>
+<p><strong>预录绘本。</strong> 标题和原文来自 <code>web/samples.js</code>。在已安装所需增强语音的 macOS 上，从仓库根目录运行 <code>python3 tools/render_samples.py</code>（Python 3.12+、Xcode Command Line Tools、afconvert）。脚本调用 <code>tools/narrate-utterance.swift</code> 与 AVFoundation；狐狸和兔子使用 Linfei，小熊使用 zh-CN-D。语音 ID 在脚本的 <code>VOICES</code> 中固定，缺少音色时报告具体 ID。</p>
+<p>生成器核对完整原文，按角色对白、转折和收尾划分语句，逐段调速、调音高，裁整空白并保留句间呼吸。以 48 kHz 单声道 PCM 合成母带，统一有效语音电平，再编码为 96 kbps AAC。脚本回解 AAC 检查静音长度、峰值与有效语音 RMS，三篇均通过后更新音频与实际时长。<code>web/player.js</code> 通过原生 audio 播放最终文件。波形验收可以发现削波与空段，听感仍须听审。</p>
+<p><strong>自创故事试读。</strong> <code>web/narration.js</code> 查询设备提供的本地中文音色；试听与全文播放共用选声逻辑。按句朗读并处理取消；设备无可用音色时提示用户。此路径没有可供 R2 持久化的音频字节，显示的长短为估算。后续云合成成功后将以固定录音、真实时长和私有对象地址替代。</p>
+<h2>适配器边界</h2>
+<p>Worker 接受家庭自己的 TTS 凭据。按提供方、区域、模型和声音目录记录能力，区分速率、风格、读音修正、输出编码、计费单位和单次输入上限。设置页使用能力表筛选合法组合；配置验证分别报告「格式有效」「授权有效」「此声音生成过试听」。正式连接测试和试音的费用由界面说明。</p>
+<table>
+<thead>
+<tr>
+<th>适配器</th>
+<th>输入、鉴权与音频交付</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Azure Speech REST</td>
+<td>家长提供 Speech 资源密钥及资源区域，从当前区域获取声音目录。向对应区域的合成端点提交转义后的 SSML，设置语音名称与输出格式，例如 <code>audio-24khz-48kbitrate-mono-mp3</code>。通过资源密钥或受支持的短时令牌鉴权，成功响应体是音频字节。风格按具体音色的能力启用。<a href="https://learn.microsoft.com/zh-cn/azure/ai-services/speech-service/rest-text-to-speech">REST 协议与格式</a> · <a href="https://learn.microsoft.com/en-us/azure/cognitive-services/speech-service/speech-synthesis-markup-voice">声音控制</a></td>
+</tr>
+<tr>
+<td>阿里云百炼 CosyVoice HTTP</td>
+<td>按地域与工作空间配置官方端点，使用同地域 API Key 作 Bearer 鉴权。提交 JSON 中的模型、正文、音色与适配参数。非流式成功结果返回临时音频 URL（有效期 24 小时）、请求 ID 和用量。及时将已验证来源的成品转存 R2，持久化对象标识。SSML 与音色须核对模型能力。<a href="https://help.aliyun.com/zh/model-studio/cosyvoice-tts-http-api">CosyVoice HTTP 协议</a> · <a href="https://help.aliyun.com/zh/model-studio/cosyvoice-voice-list">模型与声音匹配</a></td>
+</tr>
+</tbody></table>
+<p>适配器对外提供 <code>listVoices</code>、<code>plan</code>、<code>synthesize</code> 三个操作。前两项返回声音能力及按提供方单位计算的输入量、输出上界。合成返回音频流或受限下载句柄、内容类型、上游请求 ID、可获得的实际用量。可查询上游任务状态的协议额外提供 <code>lookup</code>；能力表写明支持程度。生产端在下载、重定向和认证域名之间分别实施允许列表，临时下载请求不携带合成凭据。</p>
+<h2>从稿件到录音</h2>
+<ol>
+<li><strong>冻结输入。</strong> 创建不可变稿件版本、家庭内的声音配置快照与朗读稿。朗读稿包含句/段位置、旁白/对白和必要读法。保留原文、规范化规则版本；引号、姓名、数词分隔和段落顺序可逐项对照。用户文字作为数据转义，标记由适配器构造。</li>
+<li><strong>规划片段。</strong> 优先一次提交整篇可容纳的短故事。较长作品按语义段落切分，同一口气的引语与“它轻声说”尽量在一起，超限再按句分。按实际 UTF-8 字节、字符或 SSML 长度校验服务商限制。换段只施加一次停顿。全篇固定音色、节奏、编码和采样率；每个片段记录原文范围和顺序。</li>
+<li><strong>申领任务。</strong> 家长确认后，API 在 D1 的同一原子写入单元内登记任务、用量预留和待发队列事件。消费者通过条件更新取得片段租约，队列消息只带任务编号。重复投递查状态；另设补发任务处理已登记但队列暂未接收的事件。Queues 提供至少一次投递。<a href="https://developers.cloudflare.com/queues/reference/delivery-guarantees/">Queues 投递语义</a></li>
+<li><strong>合成并核验。</strong> 消费者逐段调用提供方，音频流写入私有 R2 暂存对象。校验响应状态、编码、非零有效载荷、长度和完整性。以容器/编码帧信息或可信服务端元数据取得时长，只有成功且顺序齐全的片段能组成录音。需要解码、响度检测或转码的工作安排在离线质检或专用媒体任务，避免占用免费 Worker 的 CPU。</li>
+<li><strong>听审和发布。</strong> D1 事务将不可变片段清单切换为“待试听”，以实际字节结算并退回预留差额。家长确认后，原子更新目标儿童的发布引用。以前的录音可重播；每次播放鉴权基于当前家庭和发布状态。撤回阻止后续音频请求，已缓冲或导出的内容可能仍在设备上。</li>
+</ol>
+<h2>合成、重试与计费</h2>
+<p>完整录音的复用键由家庭、实际朗读文本、语言、断句/读法规约、提供方、模型/版本、音色/版本、表演参数和编码组成。片段复用键还包括影响发声的相邻上下文。显示标题只有实际读出时才进入合成键。仅偷偷更换默认模型而无法固定版本的服务商，应记录生成时间、请求记录及自身适配版本；已生成的音频保持不可变。</p>
+<table>
+<thead>
+<tr>
+<th>情况</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>重复点击、重复入队</td>
+<td>D1 唯一索引及事务返回现有任务。任务持有可续期租约，写回时核对租约版本，避免过期消费者覆盖结果。</td>
+</tr>
+<tr>
+<td>参数错误、密钥失效、已知拒单</td>
+<td>提示改稿、换凭据或稍后再试。根据提供方结果明确区分“请求被拒”与“可能已执行”。</td>
+</tr>
+<tr>
+<td>请求已发送，响应超时或 Worker 中断</td>
+<td>标记「结果待确认」。先用已保存的上游请求 ID 或短效下载句柄恢复，同一结果的下载可单独重试。有官方幂等机制时沿用同一个键；无法查明时由家长确认可能重复收费后重合成该段。</td>
+</tr>
+<tr>
+<td>R2 已写入，D1 提交失败</td>
+<td>按确定性的对象键及校验信息核对已完成对象，恢复清单和结算。后台对账清理无引用暂存对象。整套流程按任务 ID 结算一次。</td>
+</tr>
+<tr>
+<td>家长取消</td>
+<td>停止提交剩余片段，保留已确认上游用量。清理无引用对象后释放相应空间；计费状态未知的请求继续对账。</td>
+</tr>
+</tbody></table>
+<h2>数据和播放接口</h2>
+<p>D1 保存家庭授权、<code>voice_profile</code>、<code>recording</code>、<code>segment</code>、<code>job</code>、<code>usage_reservation</code> 与发布关系；R2 保存音频。索引至少覆盖 <code>(family_id, render_key)</code> 和 <code>(recording_id, sequence)</code>。录音时长、计量和播放进度都含显式单位；跨设备进度绑定「孩子 + 录音版本」。</p>
+<table>
+<thead>
+<tr>
+<th>调用</th>
+<th>核心约定</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>POST /api/voice/previews</code></td>
+<td>成人授权，正文选区与声音快照，返回短试听任务或已缓存片段。计入试听实际用量。</td>
+</tr>
+<tr>
+<td><code>POST /api/recordings</code></td>
+<td>成人授权并核验稿件归属，携带幂等键，返回任务 ID 或可复用录音 ID。</td>
+</tr>
+<tr>
+<td><code>GET /api/jobs/{id}</code></td>
+<td>返回所属家庭任务状态、已完成段数、总段数、可恢复的失败原因。</td>
+</tr>
+<tr>
+<td><code>GET /api/recordings/{id}/manifest</code></td>
+<td>鉴权后返回按序的片段地址、真实持续时间、编码、总时长及版本。清单中仅暴露应用内受控地址。</td>
+</tr>
+<tr>
+<td><code>GET/HEAD /api/recordings/{id}/segments/{n}</code></td>
+<td>每次验证家庭和听众。完整请求返回 200；合法单区间读取 R2 对应字节，返回 206、Content-Range、Content-Length 和 Accept-Ranges。越界请求返回 416 与对象总长。缓存策略需防止跨家庭复用响应。<a href="https://developers.cloudflare.com/r2/api/workers/workers-api-reference/">R2 Workers API</a></td>
+</tr>
+</tbody></table>
+<p>短篇优先交付单文件以利用浏览器原生锁屏、跳播和下载。分段录音用实测时长前缀和定位目标片段，预载下一段，逐个解码播放。测试 iOS Safari 和 Android Chrome 的跨段衔接及锁屏连播；若出现可闻空隙，优先采用提供方整篇输出，或由媒体任务封装同编码音轨。多段导出可交付带序号文件与清单的压缩包，或经过正确封装的一份音频；独立容器不能一概按字节连接。</p>
+<h2>容量、隐私和验收</h2>
+<ul>
+<li>每个家庭共享 100,000,000 字节，录音版本、持久保留的试听和其他内容一起计算。以 48 kbps 为例，5 分钟约 1.8 MB；同码率下 50 篇约 90 MB，实际以对象长度结算。将进行中任务的保留空间一并核算；未知长度的输出按字节封顶，超过时原子追加预留或中止。删除时按引用释放，平台公共样音单独记账。</li>
+<li>Workers Free 每次调用 CPU 上限 10 ms、内存 128 MB；D1 免费档每日读取 500 万行、写入 10 万行；Queues 免费档每日 1 万次操作；R2 Standard 每月免费 10 GB-month。按家庭容量和账户总量分别控制，模型账单取决于家庭服务商。数据流与文件转码分开部署，上线前再核对套餐。<a href="https://developers.cloudflare.com/workers/platform/limits/">Workers 限制</a> · <a href="https://developers.cloudflare.com/d1/platform/pricing/">D1 定价</a> · <a href="https://developers.cloudflare.com/queues/platform/pricing/">Queues 定价</a> · <a href="https://developers.cloudflare.com/r2/pricing/">R2 定价</a></li>
+<li>Key 只在服务端按任务授权解密，密文、随机 IV、密钥版本存 D1，主密钥存 Worker Secret。绑定家庭、持有人、接口来源；变更服务地址后重新输入 Key。请求只发送朗读所需文本与音色参数。日志只记错误类型、耗时、字节、计量和请求 ID，避免记录密钥、正文、临时签名地址或儿童档案。</li>
+<li>接入验收依次执行固定文本的适配器协议测试、重复投递与进程中断测试、并发预留达上限测试、家庭越权与撤回测试，以及真实设备的跳播、续播、睡眠定时和锁屏测试。两家服务商用同稿获得真实样音并完成盲听后，才能把优胜组合标记为推荐。</li>
+</ul>
+
+</main></html>

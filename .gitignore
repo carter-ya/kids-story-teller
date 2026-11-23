@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+.wrangler/
+node_modules/
+work/
+*.log
+*.pem
+*.key

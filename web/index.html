@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f8f6ee"><title>晚安邮局 · 家庭故事书架</title>
+<link rel="icon" href="assets/postmark.svg">
+<link rel="stylesheet" href="style.css"><link rel="stylesheet" href="storybook.css">
+<script defer src="icons.js"></script><script defer src="samples.js"></script><script defer src="picker.js"></script><script defer src="app.js"></script><script defer src="narration.js"></script><script defer src="player.js"></script><script defer src="studio.js"></script><script defer src="family.js"></script><script defer src="welcome.js"></script>
+</head>
+<body>
+<header class="mast"><div class="mast-inner"><a class="brand" href="#welcome"><img src="assets/postmark.svg" class="brand-mark" alt="">晚安邮局</a><nav aria-label="主导航" hidden><button data-nav="shelf">我的书架</button><button data-nav="create">写故事</button><button data-nav="family">我的家庭</button></nav><button hidden id="profile" class="profile" aria-label="切换听众">我的书架</button><button id="sign-in" data-act="login" class="primary">家长登录</button></div></header>
+<main id="app"><div class="wrap" role="status"><span class="meta">正在打开晚安邮局…</span><div class="hero" aria-hidden="true"><div class="hero-copy"><div class="bone" style="width:85%"></div><div class="bone" style="width:60%"></div></div><div class="bone coverbone" style="width:90%;height:220px"></div></div><div class="grid" aria-hidden="true"><div class="bone coverbone" style="width:100%"></div><div class="bone coverbone" style="width:100%"></div><div class="bone coverbone" style="width:100%"></div></div></div></main>
+<div id="mini" hidden></div><audio id="audio" preload="metadata"></audio>
+<dialog id="dialog"><form id="dialog-form"><div class="dialog-head"><h2 id="dialog-title"></h2><button type="button" class="icon" aria-label="关闭" data-close><span data-symbol="close"></span></button></div><div id="dialog-body"></div><p id="dialog-error" class="error" role="alert"></p><div class="dialog-actions" id="dialog-actions"></div></form></dialog>
+<div id="notice" role="status" aria-live="polite"></div>
+</body></html>
