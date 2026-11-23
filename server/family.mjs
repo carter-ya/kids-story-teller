@@ -100,6 +100,7 @@ export async function apiShelf(req,env,session){
     requireValue(state?.people.some(p=>p.id===kid&&p.kind==='孩子'),403,'听众已移除。');
     const item=state.stories.find(s=>s.id===id&&!s.archived&&s.published?.kids.includes(kid));
     requireValue(item||['fox','rabbit','bear'].includes(id),404,'找不到这篇故事。');
+    state.favorites??={};state.progress??={};
     if(typeof favorite==='boolean'){
       const set=new Set(state.favorites[kid]||[]);if(favorite)set.add(id);else set.delete(id);state.favorites[kid]=[...set];
     }

@@ -31,7 +31,7 @@ test('household sessions, encrypted credentials, quotas and child access',async(
   assert.equal((await call('credentials/openai','PUT',{key:secret}))[0],200);
   assert.equal(await getSecret(env,family,'openai'),secret);
   assert.ok(!db.prepare('select encrypted from credentials').get().encrypted.includes(secret));
-  const state={people:[{id:'a',name:'家长',kind:'成人'},{id:'b',name:'听众',kind:'孩子'}],stories:[],configs:[],prefs:{},progress:{},favorites:{}};
+  const state={people:[{id:'a',name:'家长',kind:'成人'},{id:'b',name:'听众',kind:'孩子'}],stories:[],configs:[],prefs:{}};
   assert.equal((await call('library','PUT',{state,revision:0}))[0],200);
   assert.equal((await call('library','PUT',{state,revision:0}))[0],409);
   assert.equal((await call('library','PUT',{state:{...state,stories:Array(101).fill({})},revision:1}))[0],400);
@@ -39,6 +39,7 @@ test('household sessions, encrypted credentials, quotas and child access',async(
   assert.equal((await call('credentials/openai'))[0],403);
   assert.equal((await call('library','PUT',{state,revision:1}))[0],403);
   assert.deepEqual((await call('library'))[1].state.people.map(p=>p.id),['b']);
+  assert.equal((await call('library','PATCH',{id:'fox',favorite:true,progress:3}))[0],200);
   assert.equal((await call('session/login','POST',{pass}))[0],200);
   await call('session/create','POST');
   assert.equal((await call('credentials/openai'))[1].configured,false);
