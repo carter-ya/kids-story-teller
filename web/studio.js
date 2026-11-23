@@ -94,7 +94,12 @@ function storeForm(){
   if(used()+bytes(text)+bytes(title)+bytes(series)-bytes(s.text)-bytes(s.title)-bytes(s.series)>limitBytes){notify('空间不足，新输入仍在编辑框内。');return false;}
   Object.assign(s,{text,title,series,cover:d.get('cover'),updated:Date.now()});save();return true;
 }
-function snapshot(s){const v={title:s.title,text:s.text,at:Date.now()};if(used()+bytes(JSON.stringify(v))>limitBytes)throw Error('空间不足，请先整理旧版本。');s.versions.unshift(v);save();}
+function snapshot(s,next=s){
+  const version={title:s.title,text:s.text,at:Date.now()};
+  const delta=bytes(JSON.stringify([next.title,next.text]))-bytes(JSON.stringify([s.title,s.text]));
+  if(used()+bytes(JSON.stringify(version))+1+delta>limitBytes)throw Error('空间不足，请先整理旧版本。');
+  s.versions.unshift(version);s.title=next.title;s.text=next.text;save();
+}
 pages.set('create',studio);pages.set('edit',editor);
 on('mode',()=>{importMode=!importMode;render()});on('prompt',id=>{const field=$('[name=idea]');field.value=id;field.dispatchEvent(new Event('input',{bubbles:true}));field.focus()});
 on('edit',id=>go('edit',id));on('studio-filter',id=>{studioTab=id;render()});
@@ -104,7 +109,7 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{if(e.target.closest('#edit-form'))storeForm()});
 forms.set('edit-form',()=>{if(!storeForm())return;const s=story(routeId);if(!s.title.trim()||!s.text.trim())throw Error('请补全标题与正文。');snapshot(s);render();notify('版本已保存。')});
-on('restore',index=>confirmAction('恢复此版本？','当前稿件会先保存为一个版本。','恢复',()=>{const s=story(routeId),v=s.versions[Number(index)];snapshot(s);s.text=v.text;s.title=v.title;save();render()}));
+on('restore',index=>confirmAction('恢复此版本？','当前稿件会先保存为一个版本。','恢复',()=>{const s=story(routeId),v=s.versions[Number(index)];snapshot(s,v);render()}));
 on('regen',()=>withService('write',()=>beginJob(story(routeId),'write')));
 on('rewrite',()=>{
   const s=story(routeId),paras=s.text.split(/\n+/).filter(Boolean);if(!paras.length){notify('请先写下正文。');return;}
@@ -113,9 +118,7 @@ on('rewrite',()=>{
     const proposed=wish.includes('短')?paras[idx].split(/[，。]/)[0]+'。':'夜色轻轻落下来。'+paras[idx].replace(/[！!]/g,'。');
     dialog('确认改写',area('replacement','改写结果（可编辑）',proposed,4),submitBtn('替换这一段'),v=>{
       const edited=v.get('replacement').trim();if(!edited)throw Error('请输入正文。');const next=paras.map((p,i)=>i===idx?edited:p).join('\n\n');
-      const previous={title:s.title,text:s.text,at:Date.now()};
-      if(used()+bytes(JSON.stringify(previous))+bytes(JSON.stringify(next))-bytes(JSON.stringify(s.text))+2>limitBytes)throw Error('空间不足，请先整理旧版本。');
-      snapshot(s);s.text=next;save();accepted();render();
+      snapshot(s,{title:s.title,text:next});accepted();render();
     });
   });
 });
