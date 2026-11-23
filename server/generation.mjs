@@ -3,8 +3,8 @@ import {getSecret,shelf} from './family.mjs';
 import {hasStyle,narrate,writeStory} from './providers.mjs';
 
 const objectKey=(family,id)=>family+'/audio/'+id+'.wav';
-const select=(env,family,id)=>env.DB.prepare('SELECT * FROM generation WHERE family=? AND id=?').bind(family,id).first();
-const publicJob=j=>({id:j.id,status:j.status,kind:j.kind,bytes:j.bytes,duration:Math.max(0,(j.bytes-44)/48000),text:j.kind!=='voice'&&j.status==='done'?j.result:undefined,error:j.status==='failed'?j.result:undefined});
+const select=(env,family,id)=>env.DB.prepare('SELECT g.*, f.media_bytes AS family_media FROM generation g JOIN families f ON f.id=g.family WHERE g.family=? AND g.id=?').bind(family,id).first();
+const publicJob=j=>({id:j.id,status:j.status,kind:j.kind,bytes:j.bytes,mediaBytes:j.family_media,duration:Math.max(0,(j.bytes-44)/48000),text:j.kind!=='voice'&&j.status==='done'?j.result:undefined,error:j.status==='failed'?j.result:undefined});
 export async function submit(req,env,session){
   admin(session);requireValue(req.method==='POST',405,'请选择生成操作。');
   const {id,kind,provider,model='',style='',input}=await readJson(req);

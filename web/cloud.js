@@ -117,8 +117,9 @@ function cloudPoll(id){
       if(epoch!==cloudEpoch||!story(id)||state.jobs[id]?.request!==job.request)return;
       const s=story(id);
       if(result.status==='done'){
+        cloudMedia=result.mediaBytes;
         if(job.type==='write')s.text=result.text;
-        else{s.recordings.unshift({id:result.id,cloud:true,title:job.title,text:job.input,voice:job.voice,provider:job.provider,bytes:result.bytes,duration:result.duration});cloudMedia+=result.bytes;advanceTour(3,4,id);}
+        else{s.recordings.unshift({id:result.id,cloud:true,title:job.title,text:job.input,voice:job.voice,provider:job.provider,bytes:result.bytes,duration:result.duration});advanceTour(3,4,id);}
         state.usage.push({at:Date.now(),type:job.type,config:job.config,chars:job.input.length});
       }else notify(result.error||'任务未完成，稿件已保留。');
       delete state.jobs[id];s.updated=Date.now();save();if(page==='edit'||page==='create')render();

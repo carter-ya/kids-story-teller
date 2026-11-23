@@ -58,6 +58,7 @@ test('queue redelivery only buys one story and reservation settles once',async t
   assert.equal(db.prepare('SELECT reserved FROM families').get().reserved,64000);
   const upstream=t.mock.method(globalThis,'fetch',async()=>Response.json({choices:[{finish_reason:'stop',message:{content:'晚安，小兔。'}}]}));
   await Promise.all([runJob(env,{family,id:job.id}),runJob(env,{family,id:job.id})]);
+  assert.equal((await call('generation','POST',job))[1].mediaBytes,Buffer.byteLength('晚安，小兔。'));
   assert.equal(upstream.mock.callCount(),1);assert.equal((await call('generation/'+job.id))[1].text,'晚安，小兔。');
   assert.deepEqual({...db.prepare('SELECT reserved,media_bytes FROM families').get()},{reserved:0,media_bytes:Buffer.byteLength('晚安，小兔。')});
   await call('session/create','POST');assert.equal((await call('generation/'+job.id))[0],404);
