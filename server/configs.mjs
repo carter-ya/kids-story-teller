@@ -59,3 +59,17 @@ export async function serviceFor(env,family,id,actor){
 export async function keyForConfig(env,family,c){
   return decrypt(env,family,c.id+'@'+c.endpoint,Uint8Array.from(atob(c.encrypted),x=>x.charCodeAt(0)));
 }
+
+export async function checkConfig(req,env,session,id){
+  admin(session);requireValue(req.method==='POST',405,'不支持此方法。');
+  const c=await serviceFor(env,session.family,id,session.adult);
+  const key=await keyForConfig(env,session.family,c);
+  const response=await fetch(c.endpoint+'/models',{headers:{Authorization:'Bearer '+key},redirect:'manual',signal:AbortSignal.timeout(12000)});
+  requireValue(![401,403].includes(response.status),422,'密钥无效或无权读取模型列表。');
+  requireValue(response.status!==402,422,'服务商账户余额不足。');
+  requireValue(response.status!==429,429,'已达到服务商用量或并发限制。');
+  requireValue(response.ok,422,'无法读取模型列表，请核对服务地址及兼容协议。');
+  const answer=await response.json();
+  if(c.type==='write')requireValue(answer.data?.some(m=>m.id===c.model),422,'密钥可用，但模型列表中没有所选写作模型。');
+  return json({message:c.type==='write'?'已连接，密钥可访问所选模型。':'已连接模型服务。可在故事工作台试听一句，验证配音权限。'});
+}

@@ -1,5 +1,5 @@
 import {coverAsset,familyArchive,eraseFamily,collectAssets} from './assets.mjs';
-import {configs} from './configs.mjs';
+import {configs,checkConfig} from './configs.mjs';
 import {accounts} from './accounts.mjs';
 import {submit,retryVoice,generation,runJob,maintainJobs} from './generation.mjs';
 import {ApiError,json,requireValue} from './common.mjs';
@@ -30,6 +30,8 @@ export default {
       if(retry)return await retryVoice(req,env,session,retry[1]);
       const job=/^\/api\/(generation|audio)\/([a-zA-Z0-9-]{12,64})$/.exec(path);
       if(job)return await generation(req,env,session,job[2],job[1]==='audio');
+      const check=/^\/api\/configs\/([\w-]+)\/check$/.exec(path);
+      if(check)return await checkConfig(req,env,session,check[1]);
       const config=/^\/api\/configs(?:\/([\w-]+))?$/.exec(path);
       if(config)return await configs(req,env,session,config[1]);
       const credential=/^\/api\/credentials\/(openai|deepseek)$/.exec(path);

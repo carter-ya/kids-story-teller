@@ -118,6 +118,11 @@ document.addEventListener('change',e=>{if(e.target.name==='vendor'){
   const model=$('#dialog-body [name=model]');if(model)model.value=defaultModel(e.target.value);
   $('#dialog-body [name=endpoint]').value='https://api.'+e.target.value+'.com/v1';
 }});
+on('check-service',async(id,b)=>{
+  b.disabled=true;b.innerHTML=icon('paw')+' 正在连接';
+  try{notify((await api('configs/'+id+'/check','POST',{})).message);}
+  finally{b.disabled=false;b.textContent='检查连接';}
+});
 on('service-default',async id=>{const c=cloudServices.find(c=>c.id===id);(state.configDefaults||={})[cloudAdult+':'+c.type]=id;await refreshServices();save();render();});
 on('service-edit',id=>{const c=cloudServices.find(c=>c.id===id);cloudConfig(c.type,c);});
 on('service-delete',id=>confirmAction('删除个人配置？','此配置的密钥和家庭授权将被移除。','删除',async()=>{await api('configs/'+id,'DELETE');await refreshServices();render();}));
