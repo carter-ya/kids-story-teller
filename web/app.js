@@ -3,7 +3,7 @@ const $ = selector => document.querySelector(selector);
 const html = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => Array.from(crypto.getRandomValues(new Uint32Array(3)),n=>n.toString(36)).join('');
 const act = (name,label,cls='secondary',id='') => `<button type="button" class="${cls}" data-act="${name}" data-id="${html(id)}">${label}</button>`;
-const cover = id => SAMPLES.find(s=>s.id===id)?.cover || SAMPLES[0].cover;
+const cover = id => /^cover-[a-f0-9-]{36}$/.test(id)?'/api/covers/'+id.slice(6):SAMPLES.find(s=>s.id===id)?.cover || SAMPLES[0].cover;
 const input = (name,label,value='',limit=160) => `<label class="field">${label}<input name="${name}" maxlength="${limit}" value="${html(value)}"></label>`;
 const area = (name,label,value='',rows=5) => `<label class="field">${label}<textarea name="${name}" rows="${rows}" maxlength="60000">${html(value)}</textarea></label>`;
 const time = n => Math.floor((n||0)/60)+':'+String(Math.floor(n||0)%60).padStart(2,'0');

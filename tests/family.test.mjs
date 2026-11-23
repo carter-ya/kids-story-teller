@@ -11,6 +11,7 @@ function setup(){
   db.exec(readFileSync(new URL('../migrations/0001_family.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../migrations/0002_generation.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../migrations/0003_accounts.sql',import.meta.url),'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0004_media.sql',import.meta.url),'utf8'));
   const DB={prepare(sql){
     const stmt=db.prepare(sql);
     const bind=(...args)=>({bind,first:()=>stmt.get(...args),run:()=>({meta:stmt.run(...args)}),all:()=>({results:stmt.all(...args)})});

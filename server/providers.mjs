@@ -61,16 +61,29 @@ async function synthesize(provider,key,style,text,append,connect,base){
     }catch(error){finish(error);}
   });
 }
-export async function narrate(job,key,connect=fetch){
-  const audio=[];let size=44;
-  const append=data=>{
-    requireValue(size+data.byteLength<=job.reserve,413,'朗读超过可用空间，建议分成较短的章节。');
-    audio.push(data);size+=data.byteLength;
-  };
-  for(const part of sections(job.input,job.provider==='openai'?340:4000)){
-    await synthesize(job.provider,key,job.style,part,append,connect,job.endpoint);
+export async function narrate(job,key,connect=fetch,checkpoint=null){
+  const audio=[],parts=sections(job.input,job.provider==='openai'?340:640);
+  const capacity=job.reserve+(job.bytes||0);
+  let size=44,remaining=[...job.input].length;
+  for(const [index,part] of parts.entries()){
+    let blob;
+    remaining-=[...part].length;
+    if(checkpoint&&index<job.completed){
+      blob=await checkpoint.load(index);
+    }else{
+      const frames=[];let count=0;
+      await synthesize(job.provider,key,job.style,part,data=>{
+        count+=data.byteLength;
+        requireValue(size+count<=capacity,413,'朗读超过可用空间，建议分成较短的章节。');
+        frames.push(data);
+      },connect,job.endpoint);
+      requireValue(count>0&&count%2===0,502,'片段音频不完整。');
+      blob=new Blob(frames);
+      if(checkpoint)await checkpoint.save(index,blob,remaining);
+    }
+    size+=blob.size;audio.push(blob);
   }
-  requireValue(size>44&&(size-44)%2===0,502,'配音返回的数据不完整。');
+  requireValue(size>44&&size<=capacity,502,'录音不完整。');
   return new Blob([wavHeader(size-44),...audio],{type:'audio/wav'});
 }
 export async function writeStory(job,key,connect=fetch){
