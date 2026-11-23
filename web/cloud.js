@@ -13,14 +13,19 @@ async function cloudBoot(){
   if(r.status===404||(r.ok&&r.headers.get('content-type')?.includes('text/html')))return false;
   if(!r.ok)throw Error('家庭书架暂时不可用，请刷新重试。');
   const session=await r.json();if(session.cloud!==true)throw Error('无法识别家庭服务。');
-  cloud=true;await enterCloud(session);return true;
+  cloud=true;
+  try{await enterCloud(session);}catch(e){
+    if(![401,403].includes(e.status))throw e;
+    await api('session/logout','POST',{});await enterCloud({});
+  }
+  return true;
 }
 async function enterCloud(session){
   clearTimeout(cloudTimer);cloudEpoch++;cloudDirty=false;cloudConflict=false;childChanges.clear();
   state=firstState();signedIn=false;adult=false;cloudFamily=null;cloudMedia=0;cloudRevision=0;
   if(!session.family)return;
-  const row=await api('library');
-  cloudFamily=session.family;cloudRevision=row.revision;cloudMedia=row.mediaBytes;signedIn=true;adult=session.kid===null;
+  cloudFamily=session.family;const row=await api('library');
+  cloudRevision=row.revision;cloudMedia=row.mediaBytes;signedIn=true;adult=session.kid===null;
   state=row.state||firstState();
   if(!row.state){state.tourV2={step:1};markCloud();await flushCloud();}
 }
@@ -43,7 +48,7 @@ async function flushCloud(){
       }
     }
   })();
-  try{await cloudFlight;}catch(e){cloudDirty=true;if(e.status===409&&adult)cloudConflict=true;throw e;}finally{cloudFlight=null;}
+  try{await cloudFlight;if($('#save-state'))$('#save-state').textContent='草稿已同步';}catch(e){cloudDirty=true;if(e.status===409&&adult)cloudConflict=true;throw e;}finally{cloudFlight=null;}
 }
 function listenerChange(id,patch){
   if(cloud&&signedIn&&!adult){childChanges.set(id,{...childChanges.get(id),...patch});markCloud();}
@@ -128,17 +133,23 @@ function cloudPoll(id){
 async function cloudPreview(s,style){
   const c=configsFor('voice').find(c=>c.preferred)||configsFor('voice')[0];
   const text=(s.text.match(/^.{1,64}?[。！？]/u)?.[0]||[...s.text].slice(0,48).join('')).trim();if(!text){notify('先写一句故事。');return;}
+  const result=await dialogJob('正在准备试听',{kind:'voice',provider:c.provider,model:'',style,input:text});
+  if(result)playTake({id:result.id,title:'试听一句',text,voice:style,duration:result.duration},s.cover);
+}
+async function dialogJob(label,data){
   const id=uid()+uid(),epoch=cloudEpoch;
-  dialog('正在准备试听','<div class="wait"><span class="bob">'+icon('headphones',34)+'</span><p>正在合成故事开头…</p></div>',act('dismiss','关闭'),null);
+  dialog(label,'<div class="wait"><span class="bob">'+icon('fox',34)+'</span><p>请稍候…</p></div>',act('dismiss','关闭'),null);
   const panel=$('#dialog-body').firstElementChild;
   try{
-    let r=await api('generation','POST',{id,kind:'voice',provider:c.provider,model:'',style,input:text});
+    let r=await api('generation','POST',{id,...data});
     while(['queued','running'].includes(r.status)){
-      await new Promise(resolve=>setTimeout(resolve,1500));if(!panel.isConnected||epoch!==cloudEpoch)return;r=await api('generation/'+id);
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      if(!panel.isConnected||epoch!==cloudEpoch)return;
+      r=await api('generation/'+id);
     }
     if(!panel.isConnected||epoch!==cloudEpoch)return;
-    if(r.status!=='done')throw Error(r.error||'试听失败。');
-    playTake({id,title:'试听一句',text,voice:style,duration:r.duration},s.cover);
+    if(r.status!=='done')throw Error(r.error||'生成失败。');
+    return r;
   }catch(e){if(panel.isConnected)$('#dialog-error').textContent=e.message;}
 }
 function playTake(r,art){

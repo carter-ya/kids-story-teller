@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import worker from '../server/worker.mjs';
-import {runJob} from '../server/generation.mjs';
+import {generation,runJob} from '../server/generation.mjs';
 import {getSecret} from '../server/family.mjs';
 
 function setup(){
@@ -61,4 +61,17 @@ test('queue redelivery only buys one story and reservation settles once',async t
   assert.equal(upstream.mock.callCount(),1);assert.equal((await call('generation/'+job.id))[1].text,'晚安，小兔。');
   assert.deepEqual({...db.prepare('SELECT reserved,media_bytes FROM families').get()},{reserved:0,media_bytes:Buffer.byteLength('晚安，小兔。')});
   await call('session/create','POST');assert.equal((await call('generation/'+job.id))[0],404);
+});
+test('private audio enforces publication, withdrawal and byte ranges',async()=>{
+  const {call,env,db}=setup(),{family}=(await call('session/create','POST'))[1];
+  const id='recording-12345',state={people:[{id:'kid',name:'听众',kind:'孩子'}],stories:[{id:'book',text:'正文',title:'故事',versions:[],recordings:[{id}],published:{rid:id,kids:['kid']}}],configs:[]};
+  assert.equal((await call('library','PUT',{revision:0,state}))[0],200);
+  db.prepare("INSERT INTO generation (family,id,fingerprint,kind,provider,model,style,input,status,reserve,bytes) VALUES(?,?,'fixture','voice','openai','','','','done',0,48)").run(family,id);
+  const kid={family,kid:'kid'},request=(method,range)=>new Request('https://example.test/api/audio/'+id,{method,headers:range?{Range:range}:{}});
+  const part=await generation(request('HEAD','bytes=12-19'),env,kid,id,true);
+  assert.equal(part.status,206);assert.equal(part.headers.get('Content-Length'),'8');assert.equal(part.headers.get('Content-Range'),'bytes 12-19/48');
+  assert.equal((await generation(request('HEAD','bytes=100-'),env,kid,id,true)).status,416);
+  await assert.rejects(generation(request('HEAD'),env,{family:'another-family',kid:null},id,true),{status:404});
+  state.stories[0].published=null;assert.equal((await call('library','PUT',{revision:1,state}))[0],200);
+  await assert.rejects(generation(request('HEAD'),env,kid,id,true),{status:404});
 });

@@ -57,7 +57,7 @@ const submitBtn=(label)=>'<button type="submit" class="primary">'+label+'</butto
 function closeDialog(){const cancel=modalCancel;modalCancel=null;modalSubmit=null;$('#dialog').close();$('#dialog-body').replaceChildren();cancel?.();}
 function accepted(){modalCancel=null;closeDialog();}
 function confirmAction(title,info,label,fn){
-  dialog(title,'<p>'+html(info)+'</p>','<button type="button" class="secondary" data-close>取消</button>'+submitBtn(label),()=>{accepted();fn()});
+  dialog(title,'<p>'+html(info)+'</p>','<button type="button" class="secondary" data-close>取消</button>'+submitBtn(label),()=>{accepted();return fn()});
 }
 function fieldSecret(name,label){
   return `<div class="field secret"><label for="secret-${name}">${label}</label><div class="row"><span class="mascot" aria-hidden="true">${icon('fox',38)}</span><input autocomplete="off" type="password" id="secret-${name}" name="${name}" maxlength="512" class="text"><button type="button" class="icon" data-eye aria-label="显示${label}" aria-pressed="false">${icon('eye-off')}</button></div></div>`;

@@ -75,7 +75,7 @@ export async function narrate(job,key,connect=fetch){
 }
 export async function writeStory(job,key,connect=fetch){
   const url=job.provider==='openai'?'https://api.openai.com/v1/chat/completions':'https://api.deepseek.com/chat/completions';
-  const r=await connect(url,{method:'POST',redirect:'error',signal:AbortSignal.timeout(120000),headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({model:job.model,messages:[{role:'system',content:'为儿童写一篇约 400 字的温柔中文故事。只输出可直接朗读的正文。避免惊吓、暴力和私人联系方式。'},{role:'user',content:job.input}]})});
+  const r=await connect(url,{method:'POST',redirect:'error',signal:AbortSignal.timeout(120000),headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({model:job.model,...(job.provider==='openai'?{max_completion_tokens:3000}:{max_tokens:3000,thinking:{type:'disabled'}}),messages:[{role:'system',content:job.kind==='rewrite'?'按照家长提供的修改要求润色儿童故事的这一段。只输出替换用的一个段落，保持人物、事实和人称一致，避免惊吓。':'为儿童写一篇约 400 字的温柔中文故事。只输出可直接朗读的正文。避免惊吓、暴力和私人联系方式。'},{role:'user',content:job.input}]})});
   requireValue(r.ok,502,'写作服务未完成，请检查模型和额度。');
   const answer=(await r.json()).choices?.[0];
   requireValue(answer?.finish_reason==='stop'&&typeof answer.message?.content==='string'&&answer.message.content.trim()&&answer.message.content.length<=16000,502,'写作服务未返回完整故事。');

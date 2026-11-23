@@ -4,13 +4,13 @@ import {hasStyle,narrate,writeStory} from './providers.mjs';
 
 const objectKey=(family,id)=>family+'/audio/'+id+'.wav';
 const select=(env,family,id)=>env.DB.prepare('SELECT * FROM generation WHERE family=? AND id=?').bind(family,id).first();
-const publicJob=j=>({id:j.id,status:j.status,kind:j.kind,bytes:j.bytes,duration:Math.max(0,(j.bytes-44)/48000),text:j.kind==='write'&&j.status==='done'?j.result:undefined,error:j.status==='failed'?j.result:undefined});
+const publicJob=j=>({id:j.id,status:j.status,kind:j.kind,bytes:j.bytes,duration:Math.max(0,(j.bytes-44)/48000),text:j.kind!=='voice'&&j.status==='done'?j.result:undefined,error:j.status==='failed'?j.result:undefined});
 export async function submit(req,env,session){
   admin(session);requireValue(req.method==='POST',405,'请选择生成操作。');
   const {id,kind,provider,model='',style='',input}=await readJson(req);
   requireValue(typeof id==='string'&&/^[a-zA-Z0-9-]{12,64}$/.test(id),400,'无效的请求编号。');
   validProvider(provider);
-  requireValue(['write','voice'].includes(kind)&&typeof input==='string'&&input.trim()&&input.length<=(kind==='voice'?4000:2000),400,'写作想法最多 2000 字，单篇配音最多 4000 字。');
+  requireValue(['write','rewrite','voice'].includes(kind)&&typeof input==='string'&&input.trim()&&input.length<=(kind==='voice'?4000:2000),400,'写作想法最多 2000 字，单篇配音最多 4000 字。');
   requireValue(typeof model==='string'&&typeof style==='string'&&(kind==='voice'?hasStyle(style)&&model==='':/^[\w.:-]{1,100}$/.test(model)&&style===''),400,'请选择有效的模型或声音。');
   const fingerprint=await hash(JSON.stringify([kind,provider,model,style,input]));
   let job=await select(env,session.family,id);
@@ -18,7 +18,7 @@ export async function submit(req,env,session){
     await getSecret(env,session.family,provider);
     const budget=await env.DB.prepare('SELECT 100000000-content_bytes-media_bytes-reserved AS free FROM families WHERE id=?').bind(session.family).first();
     // Limit one recording to 32 MB to bound memory on a Workers isolate.
-    const reserve=kind==='write'?64000:Math.min(budget.free,32000000);
+    const reserve=kind!=='voice'?64000:Math.min(budget.free,32000000);
     requireValue(reserve>=64000&&reserve<=budget.free,413,'家庭空间不足。');
     await env.DB.prepare('INSERT INTO generation(family,id,fingerprint,kind,provider,model,style,input,reserve) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM families WHERE id=? AND 100000000-content_bytes-media_bytes-reserved>=?) ON CONFLICT(family,id) DO NOTHING').bind(session.family,id,fingerprint,kind,provider,model,style,input,reserve,session.family,reserve).run();
     job=await select(env,session.family,id);requireValue(job,409,'家庭剩余空间已变化。');

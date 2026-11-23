@@ -107,23 +107,29 @@ on('mode',()=>{importMode=!importMode;render()});on('prompt',id=>{const field=$(
 on('edit',id=>go('edit',id));on('studio-filter',id=>{studioTab=id;render()});
 document.addEventListener('input',e=>{
   if(e.target.closest('#new-story')){const key={title:'import-title',body:'import-body',idea:'story-idea'}[e.target.name];if(key&&!cloud)sessionStorage.setItem(key,e.target.value);}
-  if(e.target.closest('#edit-form')&&storeForm())$('#save-state').textContent='已保存草稿';
+  if(e.target.closest('#edit-form')&&storeForm())$('#save-state').textContent=cloud?'正在同步草稿…':'已保存草稿';
 });
 document.addEventListener('change',e=>{if(e.target.closest('#edit-form'))storeForm()});
 forms.set('edit-form',()=>{if(!storeForm())return;const s=story(routeId);if(!s.title.trim()||!s.text.trim())throw Error('请补全标题与正文。');snapshot(s);render();notify('版本已保存。')});
 on('restore',index=>confirmAction('恢复此版本？','当前稿件会先保存为一个版本。','恢复',()=>{const s=story(routeId),v=s.versions[Number(index)];snapshot(s,v);render()}));
 on('regen',()=>withService('write',()=>beginJob(story(routeId),'write')));
-on('rewrite',()=>{
+function rewriteParagraph(){
   const s=story(routeId),paras=s.text.split(/\n+/).filter(Boolean);if(!paras.length){notify('请先写下正文。');return;}
-  dialog('改写一段',pick('paragraph','选择段落',paras.map((p,i)=>[String(i),p.slice(0,26)]),'0')+area('instruction','希望怎么改？','让语气更温柔',2),submitBtn('预览改写'),d=>{
+  dialog('改写一段',pick('paragraph','选择段落',paras.map((p,i)=>[String(i),p.slice(0,26)]),'0')+area('instruction','希望怎么改？','让语气更温柔',2),submitBtn(cloud?'使用写作额度生成建议':'预览改写'),async d=>{
     const idx=Number(d.get('paragraph')),wish=d.get('instruction').trim();
-    const proposed=wish.includes('短')?paras[idx].split(/[，。]/)[0]+'。':'夜色轻轻落下来。'+paras[idx].replace(/[！!]/g,'。');
+    let proposed;
+    if(cloud){
+      const c=configsFor('write').find(c=>c.preferred)||configsFor('write')[0];
+      const r=await dialogJob('正在润色这一段',{kind:'rewrite',provider:c.provider,model:c.model,style:'',input:'修改要求：'+wish+'\n原文：'+paras[idx]});
+      if(!r)return;proposed=r.text;
+    }else proposed=wish.includes('短')?paras[idx].split(/[，。]/)[0]+'。':'夜色轻轻落下来。'+paras[idx].replace(/[！!]/g,'。');
     dialog('确认改写',area('replacement','改写结果（可编辑）',proposed,4),submitBtn('替换这一段'),v=>{
       const edited=v.get('replacement').trim();if(!edited)throw Error('请输入正文。');const next=paras.map((p,i)=>i===idx?edited:p).join('\n\n');
       snapshot(s,{title:s.title,text:next});accepted();render();
     });
   });
-});
+}
+on('rewrite',()=>cloud?withService('write',rewriteParagraph):rewriteParagraph());
 on('short-preview',()=>cloud?withService('voice',()=>confirmAction('试听故事开头？','服务商将按试听文本计费。','生成试听',()=>cloudPreview(story(routeId),$('[name=voice]').value))):sayPreview(story(routeId).text.split(/[。！？]/)[0]||'晚安，愿你做个好梦。',$('[name=voice]').value));
 on('record',()=>{const s=story(routeId),v=$('[name=voice]').value;if(!s.text.trim()||!s.title.trim()){notify('请先补全标题和正文。');return;}
   const same=s.recordings.find(r=>r.text===s.text&&r.voice===v&&(!cloud||r.provider===(configsFor('voice').find(c=>c.preferred)||configsFor('voice')[0])?.provider));if(same){notify('已找到相同朗读，可以直接试听或发布。');return;}
