@@ -21,6 +21,7 @@ const story=id=>state.stories.find(s=>s.id===id);
 const sample=id=>SAMPLES.find(s=>s.id===id);
 const bytes=text=>new Blob([text]).size;
 function used(){
+  if(cloud)return bytes(JSON.stringify(state))+cloudMedia;
   return state.stories.reduce((n,s)=>n+bytes(JSON.stringify([s.title,s.idea,s.text,s.versions,s.series,s.recordings.map(r=>[r.title,r.text,r.voice])]))+s.recordings.reduce((a,r)=>a+r.bytes,0),0);
 }
 const limitBytes=100000000;
@@ -36,6 +37,7 @@ async function load(){
   }catch{state=firstState();persistenceFailed=true;notify('此浏览器未开放本地存储，本次数据仅在页面内保留。');}
 }
 function save(){
+  if(cloud){if(adult)markCloud();return;}
   if(!database)return;
   try{
     const tx=database.transaction('family','readwrite');
@@ -58,11 +60,12 @@ function confirmAction(title,info,label,fn){
   dialog(title,'<p>'+html(info)+'</p>','<button type="button" class="secondary" data-close>取消</button>'+submitBtn(label),()=>{accepted();fn()});
 }
 function fieldSecret(name,label){
-  return `<div class="field secret"><label for="secret-${name}">${label}</label><div class="row"><span class="mascot" aria-hidden="true">${icon('fox',38)}</span><input autocomplete="off" type="password" id="secret-${name}" name="${name}" maxlength="150" class="text"><button type="button" class="icon" data-eye aria-label="显示${label}" aria-pressed="false">${icon('eye-off')}</button></div></div>`;
+  return `<div class="field secret"><label for="secret-${name}">${label}</label><div class="row"><span class="mascot" aria-hidden="true">${icon('fox',38)}</span><input autocomplete="off" type="password" id="secret-${name}" name="${name}" maxlength="512" class="text"><button type="button" class="icon" data-eye aria-label="显示${label}" aria-pressed="false">${icon('eye-off')}</button></div></div>`;
 }
 function gate(fn){
   if(!signedIn){login();return;}
   if(adult){fn();return;}
+  if(cloud){cloudLogin(fn,true);return;}
   pendingGate=fn;
   dialog('进入家长区','<p>评审用家长口令为 <strong>1234</strong>。</p>'+fieldSecret('pin','家长口令'),submitBtn('解锁'),data=>{
     if(data.get('pin')!=='1234')throw Error('口令不对，再试一次。');
@@ -99,7 +102,7 @@ function listed(){
   if(!signedIn)return SAMPLES;
   return [...state.stories.filter(s=>s.published?.kids.includes(state.kid)&&!s.archived).map(s=>{
     const r=s.recordings.find(r=>r.id===s.published.rid);
-    return r?{id:s.id,title:s.published.title||r.title,text:r.text,cover:cover(s.published.cover),theme:s.series||'家庭原创',duration:r.duration,recording:r.id,voice:r.voice}:null;
+    return r?{id:s.id,title:s.published.title||r.title,text:r.text,cover:cover(s.published.cover),theme:s.series||'家庭原创',duration:r.duration,recording:r.id,audio:r.cloud?'/api/audio/'+encodeURIComponent(r.id):undefined,voice:r.voice}:null;
   }).filter(Boolean),...SAMPLES];
 }
 function keyFor(item){return [state.kid,item.id,item.recording||'sample'].join(':')}
@@ -117,9 +120,9 @@ function empty(title,body,button=''){return `<div class="empty"><div class="art"
 function title(h,desc=''){return `<div class="page-title"><h1>${html(h)}</h1>${desc?'<p>'+html(desc)+'</p>':''}</div>`}
 pages.set('shelf',shelf);
 on('filter',id=>{filter=id;render()});
-on('fav',id=>{const arr=state.favorites[state.kid]||=[];if(liked(id))arr.splice(arr.indexOf(id),1);else arr.push(id);save();render()});
+on('fav',id=>{const arr=state.favorites[state.kid]||=[];if(liked(id))arr.splice(arr.indexOf(id),1);else arr.push(id);listenerChange(id,{favorite:liked(id)});save();render()});
 on('create',()=>gate(()=>go('create')));
-function switchKid(id){stopPlayback();state.kid=id;save();adult=false;sessionStorage.removeItem('post-office-adult');accepted();go('shelf');}
+function switchKid(id){if(cloud){if(adult)return changeCloudRole(id);accepted();return;}stopPlayback();state.kid=id;save();adult=false;sessionStorage.removeItem('post-office-adult');accepted();go('shelf');}
 $('#profile').onclick=()=>dialog('谁来听故事？','<div class="check-list">'+children().map(k=>act('switch-kid',icon('rabbit')+html(k.name)+(k.id===state.kid?icon('check',16):''),'secondary',k.id)).join('')+'</div>',act('manage-profile','管理听众'),null);
 on('switch-kid',switchKid);
 on('manage-profile',()=>{accepted();gate(()=>go('family'))});
@@ -128,11 +131,11 @@ document.addEventListener('click',e=>{
   if(eye){const field=eye.closest('.secret'),box=field.querySelector('input');box.type=box.type==='password'?'text':'password';eye.innerHTML=icon(box.type==='text'?'eye':'eye-off');eye.setAttribute('aria-pressed',String(box.type==='text'));eye.setAttribute('aria-label',box.type==='text'?'隐藏内容':'显示内容');return;}
   if(e.target.closest('[data-close]')){closeDialog();return;}
   const nav=e.target.closest('[data-nav]');if(nav){if(nav.dataset.nav==='shelf')go('shelf');else gate(()=>go(nav.dataset.nav));return;}
-  const b=e.target.closest('[data-act]');if(b)actions.get(b.dataset.act)?.(b.dataset.id,b);
+  const b=e.target.closest('[data-act]');if(b)Promise.resolve().then(()=>actions.get(b.dataset.act)?.(b.dataset.id,b)).catch(e=>notify(e.message));
 });
 document.addEventListener('focusin',e=>{const f=e.target.closest('.secret');if(f)f.querySelector('.mascot').innerHTML=icon('fox-cover',38)});
 document.addEventListener('focusout',e=>{const f=e.target.closest('.secret');if(f&&!f.contains(e.relatedTarget)){f.querySelector('input').type='password';f.querySelector('.mascot').innerHTML=icon('fox',38);const b=f.querySelector('[data-eye]');b.innerHTML=icon('eye-off');b.setAttribute('aria-pressed','false');b.setAttribute('aria-label','显示内容');}});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;try{if(f.id==='dialog-form'){await modalSubmit?.(new FormData(f),f)}else await forms.get(f.id)?.(new FormData(f),f)}catch(err){if($('#dialog').open)$('#dialog-error').textContent=err.message;else notify(err.message);}});
 $('#dialog').addEventListener('cancel',e=>{e.preventDefault();closeDialog()});
 window.addEventListener('hashchange',navigate);
-window.addEventListener('DOMContentLoaded',async()=>{await load();document.querySelectorAll('[data-symbol]').forEach(el=>el.innerHTML=icon(el.dataset.symbol));resumeJobs();navigate()});
+window.addEventListener('DOMContentLoaded',async()=>{try{if(!await cloudBoot())await load();}catch(e){$('#app').textContent=e.message||'打开书架失败，请刷新重试。';return;}document.querySelectorAll('[data-symbol]').forEach(el=>el.innerHTML=icon(el.dataset.symbol));resumeJobs();navigate()});

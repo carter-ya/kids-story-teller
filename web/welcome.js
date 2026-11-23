@@ -27,6 +27,7 @@ function welcome() {
 pages.set('welcome',welcome);
 
 function login() {
+  if(cloud)return cloudLogin();
   dialog('登录家庭书架','<p class="hint">前端评审使用本机的家庭体验账号，登录后可继续这个浏览器里的作品。</p>'+fieldSecret('login','体验口令')+'<p class="hint">体验口令：<strong>1234</strong></p>',submitBtn('登录并继续'),data=>{
     if(data.get('login')!=='1234')throw Error('请输入体验口令 1234。');
     accepted();stopPlayback();signedIn=true;adult=true;
@@ -37,6 +38,7 @@ function login() {
 }
 on('login', login);
 on('logout',()=>{
+  if(cloud)return cloudLogout();
   accepted();stopPlayback();signedIn=false;adult=false;filter='all';
   sessionStorage.removeItem('post-office-adult');sessionStorage.removeItem('post-office-login');go('welcome');
 });
@@ -53,7 +55,7 @@ function resumeTour() {
 }
 const tourSteps=[
   ['为谁寄故事？','给小听众取个昵称。这会出现在孩子自己的书架上。'],
-  ['写下第一个想法','点选一个灵感或写下自己的，随后点「写故事」。首次配置可直接使用内置示例。'],
+  ['写下第一个想法','点选一个灵感或写下自己的，随后点「写故事」。也可以导入已有的故事。'],
   ['读稿，再给故事配音','读一遍故事，可以直接改字。满意后在「给故事配音」点「生成朗读」。'],
   ['把朗读放进书架','可以先试听，再点录音旁的「放进书架」，选一位听众。'],
   ['点开第一封声音来信','故事已发布。点下方按钮，打开刚刚做好的一篇。']

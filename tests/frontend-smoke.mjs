@@ -13,7 +13,7 @@ const child = spawn(chrome, ['--headless','--disable-gpu','--disable-background-
 let socket;
 const errors = [];
 async function until(check, label) {
-  for(let n=0;n<100;n++){if(await check())return;await sleep(100);}
+  for(let n=0;n<100;n++){try{if(await check())return;}catch(e){if(!/navigated|context was destroyed/i.test(e.message))throw e;}await sleep(100);}
   throw Error('Timed out waiting for '+label);
 }
 try {
@@ -35,6 +35,7 @@ try {
     if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||result.exceptionDetails.text);
     return result.result.value;
   }
+  async function reload(){const before=await js('performance.timeOrigin');await send('Page.reload');await until(async()=>{const after=await js('performance.timeOrigin');return after!==before;},'fresh document');}
   const exists=selector=>until(()=>js('!!document.querySelector('+JSON.stringify(selector)+')'),selector);
   async function click(selector){await exists(selector);await js('document.querySelector('+JSON.stringify(selector)+').click()');}
   async function fill(selector,value){await exists(selector);await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}))})()`);}
@@ -47,11 +48,29 @@ try {
   await exists('#play-button[data-playing=true] .show-pause svg');
   assert.equal(await js("Object.keys(state.progress).length"),0);
   await click('[data-act=back-shelf]');await exists('.welcome');
+  if(process.argv.includes('--cloud')){
+    await click('#sign-in');await click('[data-act=cloud-new]');
+    await exists('[aria-label="家庭登录码"][readonly]');
+    const pass=await js("document.querySelector('[readonly]').value");
+    await click('#dialog-actions [type=submit]');await exists('#guide-family');
+    await fill('[name=nickname]','云端听众');await click('#guide-family [type=submit]');await exists('#new-story');
+    await click('[data-act=mode]');await fill('[name=title]','云端故事');await fill('[name=body]','小兔轻声说晚安。');
+    await click('#new-story [type=submit]');await exists('#edit-form');await js('flushCloud()');
+    await reload();await exists('#edit-form');
+    assert.equal(await js("document.querySelector('[name=title]').value"),'云端故事');
+    await click('[data-nav=family]');await click('[data-act=lock]');await exists('.hero-art');
+    assert.equal(await js("adult"),false);
+    assert.equal(await js("state.stories.length"),0);
+    await click('[data-nav=create]');await fill('[name=pass]',pass);await click('#dialog-actions [type=submit]');await exists('#new-story');
+    await click('[data-nav=family]');await click('[data-act=logout]');await exists('.welcome');
+    assert.equal(await js('signedIn'),false);assert.deepEqual(errors,[]);
+    console.log('PASS · cloud household creation, onboarding, saved draft after reload, child isolation, adult login, logout');
+  }else{
   await click('#sign-in');await fill('[name=login]','1234');
   await click('#dialog-actions [type=submit]');await exists('#guide-family');
   await fill('[name=nickname]','小桃');await click('#guide-family [type=submit]');await exists('#new-story');
   assert.match(await js("document.querySelector('.coach').textContent"),/2 \/ 5/);
-  await send('Page.reload');await exists('#new-story');
+  await reload();await exists('#new-story');
   await fill('[name=idea]','云朵上的晚餐');await click('#new-story [type=submit]');
   await click('[role=combobox]');await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}));document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");
   await fill('[name=endpoint]','https://example.org/v1');await fill('[name=key]','test-placeholder');
@@ -68,7 +87,7 @@ try {
   assert.equal(await js("document.querySelectorAll('.book').length"),4);
   await click('[data-act=fav]');await click('[data-act=filter][data-id=fav]');
   assert.equal(await js("document.querySelectorAll('.book').length"),1);
-  await send('Page.reload');await exists('.hero-art img');
+  await reload();await exists('.hero-art img');
   assert.equal(await js("document.querySelectorAll('.book').length"),4);
   assert.equal(await js("JSON.stringify(state).includes('test-placeholder')"),false);
   await click('#profile');await js("Array.from(document.querySelectorAll('[data-act=switch-kid]')).find(b=>b.textContent.includes('新听众')).click()");
@@ -93,6 +112,7 @@ try {
   await click('#sign-in');await fill('[name=login]','1234');await click('#dialog-actions [type=submit]');await exists('.hero-art img');
   assert.deepEqual(errors,[]);
   console.log('PASS · guest landing/audio, login, five-step onboarding, skip/replay, guest route isolation, playback, parent unlock, custom picker, create/edit/record/publish, members, child access, persistence, mobile layout, all three family quotas');
+  }
 } finally {
   socket?.close();
   const stopped=new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve)});
