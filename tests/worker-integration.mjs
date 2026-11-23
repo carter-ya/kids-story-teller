@@ -19,7 +19,7 @@ const upstream=`export default {async fetch(req) {
 }}`;
 
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[
-  { name:'app',modules:['worker','common','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
+  { name:'app',modules:['worker','common','accounts','configs','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
     outboundService:'provider-fixture',d1Databases:['DB'],r2Buckets:['FILES'],
     queueProducers:{JOBS:'audio'},queueConsumers:{audio:{maxBatchSize:1,maxBatchTimeout:0}},
     bindings:{VAULT_KEY:randomBytes(32).toString('hex')} },
@@ -27,7 +27,7 @@ const mf=new Miniflare(convertV4MiniflareOptions({workers:[
 ]}));
 try{
   const db=await mf.getD1Database('DB','app');
-  for(const fn of ['0001_family.sql','0002_generation.sql']){
+  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql']){
     let sql='';
     for(const line of readFileSync('migrations/'+fn,'utf8').trim().split('\n')){
       sql+=line+'\n';

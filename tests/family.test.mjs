@@ -10,6 +10,7 @@ function setup(){
   const db=new DatabaseSync(':memory:');
   db.exec(readFileSync(new URL('../migrations/0001_family.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../migrations/0002_generation.sql',import.meta.url),'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0003_accounts.sql',import.meta.url),'utf8'));
   const DB={prepare(sql){
     const stmt=db.prepare(sql);
     const bind=(...args)=>({bind,first:()=>stmt.get(...args),run:()=>({meta:stmt.run(...args)}),all:()=>({results:stmt.all(...args)})});
@@ -75,4 +76,29 @@ test('private audio enforces publication, withdrawal and byte ranges',async()=>{
   await assert.rejects(generation(request('HEAD'),env,{family:'another-family',kid:null},id,true),{status:404});
   state.stories[0].published=null;assert.equal((await call('library','PUT',{revision:1,state}))[0],200);
   await assert.rejects(generation(request('HEAD'),env,kid,id,true),{status:404});
+});
+test('one-time adult invitation, individual configuration permissions and durable budgets',async()=>{
+  const {call,db}=setup();
+  const owner=(await call('session/create','POST'))[1];
+  const config={type:'write',provider:'openai',model:'writer',key:'test-only-credential',perDay:1,share:false};
+  assert.equal((await call('configs/config-one','PUT',config))[0],200);
+  const invitation=(await call('accounts','POST',{name:'照护者'}))[1];
+  const member=(await call('session/login','POST',{pass:invitation.code}))[1];
+  assert.ok(member.pass);assert.notEqual(member.adult,'owner');
+  assert.equal((await call('session/login','POST',{pass:invitation.code}))[0],401);
+  assert.deepEqual((await call('configs'))[1],[]);
+  const job={id:'acl-job-00000001',kind:'write',provider:'openai',model:'writer',input:'一只猫',config:'config-one'};
+  assert.equal((await call('generation','POST',job))[0],403);
+  assert.equal((await call('credentials/openai','PUT',{key:'test-fixture-only'}))[0],403);
+  assert.equal((await call('accounts','POST',{name:'越权'}))[0],403);
+  await call('session/login','POST',{pass:owner.pass});
+  await call('configs/config-one','PUT',{...config,share:true});
+  await call('session/login','POST',{pass:member.pass});
+  assert.equal((await call('generation','POST',job))[0],202);
+  assert.equal((await call('generation','POST',job))[0],202);
+  assert.equal((await call('generation','POST',{...job,id:'acl-job-00000002'}))[0],429);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM service_usage').get().n,1);
+  await call('session/login','POST',{pass:owner.pass});
+  await call('accounts/'+member.adult,'DELETE');
+  assert.equal((await call('session/login','POST',{pass:member.pass}))[0],401);
 });

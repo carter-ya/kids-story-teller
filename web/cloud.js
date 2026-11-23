@@ -1,6 +1,6 @@
 // The static preview keeps its own local household. Worker sessions always start from the server.
 let cloud=false,cloudRevision=0,cloudFamily=null,cloudDirty=false,cloudFlight=null,cloudTimer,cloudConflict=false,cloudMedia=0;
-let cloudEpoch=0;
+let cloudEpoch=0,cloudAdult=null,cloudAccounts=[],cloudServices=[];
 const childChanges=new Map(),polling=new Set();
 async function api(path,method='GET',body){
   const response=await fetch('/api/'+path,{method,cache:'no-store',credentials:'same-origin',headers:{...(body?{'Content-Type':'application/json'}:{}),...(cloudFamily?{'X-Story-Family':cloudFamily}:{})},body:body?JSON.stringify(body):undefined});
@@ -21,12 +21,14 @@ async function cloudBoot(){
   return true;
 }
 async function enterCloud(session){
-  clearTimeout(cloudTimer);cloudEpoch++;cloudDirty=false;cloudConflict=false;childChanges.clear();
+  clearTimeout(cloudTimer);cloudEpoch++;cloudAdult=null;cloudAccounts=[];cloudServices=[];cloudDirty=false;cloudConflict=false;childChanges.clear();
   state=firstState();signedIn=false;adult=false;cloudFamily=null;cloudMedia=0;cloudRevision=0;
   if(!session.family)return;
   cloudFamily=session.family;const row=await api('library');
   cloudRevision=row.revision;cloudMedia=row.mediaBytes;signedIn=true;adult=session.kid===null;
+  cloudAdult=session.adult||null;cloudAccounts=row.accounts||[];
   state=row.state||firstState();
+  if(adult)await refreshServices();
   if(!row.state){state.tourV2={step:1};markCloud();await flushCloud();}
 }
 function markCloud(){
@@ -55,9 +57,11 @@ function listenerChange(id,patch){
 }
 window.addEventListener('beforeunload',event=>{if(cloud&&(cloudDirty||cloudFlight)){event.preventDefault();event.returnValue='';}});
 function cloudLogin(after,unlock=false){
-  dialog(unlock?'回到家长区':'登录家庭书架',fieldSecret('pass','家庭登录码')+'<p class="hint">在另一台设备输入同一个登录码，就能继续使用家庭书架。</p>',(!unlock?act('cloud-new','创建新家庭','secondary'):'')+submitBtn('打开书架'),async d=>{
+  dialog(unlock?'回到家长区':'登录家庭书架',fieldSecret('pass','家庭登录码')+'<p class="hint">使用自己的登录码，或输入家长发给你的一次性邀请码。</p>',(!unlock?act('cloud-new','创建新家庭','secondary'):'')+submitBtn('打开书架'),async d=>{
     stopPlayback();await flushCloud();const session=await api('session/login','POST',{pass:d.get('pass').trim()});
-    await enterCloud(session);accepted();resumeJobs();if(after)after();else resumeTour();
+    await enterCloud(session);accepted();resumeJobs();
+    const next=()=>after?after():resumeTour();
+    if(session.pass)showCode('你的个人登录码',session.pass,next);else next();
   });
 }
 on('cloud-new',async(_,b)=>{
@@ -75,29 +79,51 @@ async function cloudLogout(){
 }
 const providerName=p=>p==='deepseek'?'DeepSeek':'OpenAI';
 const defaultModel=p=>p==='deepseek'?'deepseek-flash':'gpt-4.1-mini';
+function showCode(title,code,next=render){
+  dialog(title,'<p>请保存在密码管理器中。</p><textarea readonly aria-label="登录码">'+html(code)+'</textarea>',submitBtn('已保存'),()=>{accepted();next()},next);
+}
+async function refreshServices(){
+  cloudServices=(await api('configs')).map(c=>({...c,name:providerName(c.provider)+' · '+typeName(c.type),managed:true,preferred:state.configDefaults?.[cloudAdult+':'+c.type]===c.id}));
+}
+async function refreshAccounts(){cloudAccounts=(await api('library')).accounts;}
+on('invite-adult',()=>dialog('邀请成人',input('name','照护者昵称','',24)+'<p>邀请码一天内有效，仅可使用一次。请私下交给对方。</p>',submitBtn('生成邀请码'),async d=>{
+  await flushCloud();const r=await api('accounts','POST',{name:d.get('name')});
+  await refreshAccounts();showCode('请私下分享一次性邀请码',r.code);
+}));
+on('revoke-adult',id=>confirmAction('撤销这位成人的访问？','该成人的登录码、已登录设备和个人服务配置会失效。','撤销',async()=>{
+  await api('accounts/'+id,'DELETE');await refreshAccounts();await refreshServices();render();
+}));
+on('rotate-owner',()=>confirmAction('更换管理员登录码？','旧码和其他管理员设备将立即失效，请保存新码。','更换',async()=>{
+  const r=await api('session/rotate','POST',{});showCode('新的管理员登录码',r.pass);
+}));
 function cloudConfig(type,c,after){
-  const provider=c?.provider||'openai';
-  const fields=pick('vendor','服务商',[['openai','OpenAI','moon'],['deepseek','DeepSeek','sun']],provider)+
-    (type==='write'?input('model','写作模型',c?.model||defaultModel(provider)):'<p class="hint">两种声音已配好。生成前可以试听一句。</p>')+
-    fieldSecret('key','API Key')+'<p class="hint">同一家庭的写作和配音共用服务商密钥。已有密钥可留空。生成会使用服务商账户的额度。</p>';
-  dialog('连接'+typeName(type)+'服务',fields,submitBtn(after?'保存并继续':'保存配置'),async d=>{
-    const p=d.get('vendor'),key=d.get('key').trim(),model=type==='write'?d.get('model').trim():'';
-    if(type==='write'&&!/^[\w.:-]{1,100}$/.test(model))throw Error('请输入模型名称。');
-    if(key)await api('credentials/'+p,'PUT',{key});
-    else if(!(await api('credentials/'+p)).configured)throw Error('第一次连接请填写服务商密钥。');
-    const rec={id:c?.id||uid(),type,provider:p,model,name:providerName(p)+' · '+typeName(type),preferred:c?c.preferred:!configsFor(type).length,share:true};
-    if(c)state.configs[state.configs.indexOf(c)]=rec;else state.configs.push(rec);
-    save();await flushCloud();accepted();if(after)after();else render();
+  const p=c?.provider||'openai';
+  const body=pick('vendor','服务商',[['openai','OpenAI','moon'],['deepseek','DeepSeek','sun']],p)+
+    (type==='write'?input('model','写作模型',c?.model||defaultModel(p)):'<p>已配好两种声音，可先试听一句。</p>')+
+    fieldSecret('key','API Key')+'<details><summary>地址与用量</summary>'+input('endpoint','兼容 API 根地址',c?.endpoint||'https://api.'+p+'.com/v1',400)+
+    input('daily','每天最多生成次数（0 表示不限）',c?.perDay||0)+input('monthly','每月最多输入字数',c?.perMonth||0)+input('perStory','每次最多输入字数',c?.perStory||0)+'</details>'+
+    '<label><input type="checkbox" name="shared" '+(c?.share?'checked':'')+'> 授权家庭其他成人使用</label><p class="hint">写作会发送想法、年龄段和避讳，配音发送正文。生成消耗所选服务的额度。</p>';
+  dialog('连接'+typeName(type)+'服务',body,submitBtn(after?'保存并继续':'保存配置'),async d=>{
+    const id=c?.managed?c.id:uid(),provider=d.get('vendor');
+    await api('configs/'+id,'PUT',{provider,type,model:d.get('model')||'',endpoint:d.get('endpoint').trim(),key:d.get('key').trim(),share:d.has('shared'),perDay:d.get('daily'),perMonth:d.get('monthly'),perStory:d.get('perStory')});
+    if(c&&!c.managed)state.configs=state.configs.filter(x=>x.id!==c.id);
+    (state.configDefaults||={})[cloudAdult+':'+type]=id;await refreshServices();save();await flushCloud();accepted();if(after)after();else render();
   });
 }
-document.addEventListener('change',e=>{if(e.target.name==='vendor'&&$('#dialog-body [name=model]'))$('#dialog-body [name=model]').value=defaultModel(e.target.value);});
+document.addEventListener('change',e=>{if(e.target.name==='vendor'){
+  const model=$('#dialog-body [name=model]');if(model)model.value=defaultModel(e.target.value);
+  $('#dialog-body [name=endpoint]').value='https://api.'+e.target.value+'.com/v1';
+}});
+on('service-default',async id=>{const c=cloudServices.find(c=>c.id===id);(state.configDefaults||={})[cloudAdult+':'+c.type]=id;await refreshServices();save();render();});
+on('service-edit',id=>{const c=cloudServices.find(c=>c.id===id);cloudConfig(c.type,c);});
+on('service-delete',id=>confirmAction('删除个人配置？','此配置的密钥和家庭授权将被移除。','删除',async()=>{await api('configs/'+id,'DELETE');await refreshServices();render();}));
 on('forget-key',p=>confirmAction('移除服务商密钥？','家庭成员需要重新连接才能用这项服务生成内容。','移除密钥',async()=>{await api('credentials/'+p,'DELETE');notify('密钥已移除。');}));
 function cloudBegin(s,type,style){
   const c=configsFor(type).find(c=>c.preferred)||configsFor(type)[0];
   const input=(type==='write'?s.idea:s.text).trim();
   if(input.length>(type==='voice'?4000:2000)){notify(type==='voice'?'请将本篇拆成 4000 字以内的章节。':'请将故事想法缩短至 2000 字以内。');return;}
   const request=uid()+uid();
-  state.jobs[s.id]={request,type,voice:style||'',input,title:s.title,provider:c.provider,model:c.model,config:c.id};
+  state.jobs[s.id]={request,actor:cloudAdult,type,voice:style||'',input,title:s.title,provider:c.provider,model:c.model,config:c.id,managed:c.managed||false,listener:state.kid};
   markCloud();go('edit',s.id);cloudPoll(s.id);
 }
 function cloudPoll(id){
@@ -110,8 +136,8 @@ function cloudPoll(id){
     try{
       await flushCloud();
       if(epoch!==cloudEpoch)return;
-      const data={id:job.request,kind:job.type,provider:job.provider,style:job.voice,input:job.input,model:job.model};
-      let result=await api('generation','POST',data);
+      const data={id:job.request,kind:job.type,provider:job.provider,style:job.voice,input:job.input,model:job.model,config:job.managed?job.config:'',listener:job.listener||''};
+      let result=job.actor&&job.actor!==cloudAdult?await api('generation/'+job.request):await api('generation','POST',data);
       while(['queued','running'].includes(result.status)){
         await new Promise(r=>setTimeout(r,2000));
         if(epoch!==cloudEpoch)return;
@@ -128,7 +154,7 @@ function cloudPoll(id){
       delete state.jobs[id];s.updated=Date.now();save();if(page==='edit'||page==='create')render();
     }catch(e){
       if(epoch!==cloudEpoch)return;
-      if([400,413,422].includes(e.status)){delete state.jobs[id];save();if(page==='edit')render();}
+      if([400,403,413,422,429].includes(e.status)){delete state.jobs[id];save();if(page==='edit')render();}
       else if(!cloudConflict)setTimeout(()=>{if(epoch===cloudEpoch)cloudPoll(id);},8000);
       notify(e.message);
     }finally{polling.delete(pollKey);}
@@ -137,7 +163,7 @@ function cloudPoll(id){
 async function cloudPreview(s,style){
   const c=configsFor('voice').find(c=>c.preferred)||configsFor('voice')[0];
   const text=(s.text.match(/^.{1,64}?[。！？]/u)?.[0]||[...s.text].slice(0,48).join('')).trim();if(!text){notify('先写一句故事。');return;}
-  const result=await dialogJob('正在准备试听',{kind:'voice',provider:c.provider,model:'',style,input:text});
+  const result=await dialogJob('正在准备试听',{kind:'voice',provider:c.provider,config:c.managed?c.id:'',model:'',style,input:text});
   if(result)playTake({id:result.id,title:'试听一句',text,voice:style,duration:result.duration},s.cover);
 }
 async function dialogJob(label,data){

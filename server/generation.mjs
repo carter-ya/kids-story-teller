@@ -1,3 +1,4 @@
+import {serviceFor,keyForConfig} from './configs.mjs';
 import {admin,ApiError,hash,json,readJson,requireValue,validProvider} from './common.mjs';
 import {getSecret,shelf} from './family.mjs';
 import {hasStyle,narrate,writeStory} from './providers.mjs';
@@ -7,22 +8,37 @@ const select=(env,family,id)=>env.DB.prepare('SELECT g.*, f.media_bytes AS famil
 const publicJob=j=>({id:j.id,status:j.status,kind:j.kind,bytes:j.bytes,mediaBytes:j.family_media,duration:Math.max(0,(j.bytes-44)/48000),text:j.kind!=='voice'&&j.status==='done'?j.result:undefined,error:j.status==='failed'?j.result:undefined});
 export async function submit(req,env,session){
   admin(session);requireValue(req.method==='POST',405,'请选择生成操作。');
-  const {id,kind,provider,model='',style='',input}=await readJson(req);
+  const {id,kind,provider,model='',style='',input,config='',listener=''}=await readJson(req);
   requireValue(typeof id==='string'&&/^[a-zA-Z0-9-]{12,64}$/.test(id),400,'无效的请求编号。');
   validProvider(provider);
   requireValue(['write','rewrite','voice'].includes(kind)&&typeof input==='string'&&input.trim()&&input.length<=(kind==='voice'?4000:2000),400,'写作想法最多 2000 字，单篇配音最多 4000 字。');
   requireValue(typeof model==='string'&&typeof style==='string'&&(kind==='voice'?hasStyle(style)&&model==='':/^[\w.:-]{1,100}$/.test(model)&&style===''),400,'请选择有效的模型或声音。');
-  const fingerprint=await hash(JSON.stringify([kind,provider,model,style,input]));
+  const actor=session.adult;
+  const fingerprint=await hash(JSON.stringify(config||listener?[kind,provider,model,style,input,config,listener]:[kind,provider,model,style,input]));
   let job=await select(env,session.family,id);
   if(!job){
-    await getSecret(env,session.family,provider);
+    let endpoint='';
+    if(config){
+      const c=await serviceFor(env,session.family,config,actor);
+      requireValue(c.provider===provider&&c.model===model&&c.type===(kind==='voice'?'voice':'write'),409,'模型配置已改变。');
+      endpoint=c.endpoint;
+    }else{
+      requireValue(actor==='owner',403,'请选择自己拥有或获授权的配置。');
+      await getSecret(env,session.family,provider);
+    }
+    const prefs=listener&&kind!=='voice'?(await shelf(env,session.family)).state?.prefs?.[listener]:null;
+    const settings=JSON.stringify({endpoint,age:String(prefs?.age||'').slice(0,24),avoid:String(prefs?.avoid||'').slice(0,160)});
     const budget=await env.DB.prepare('SELECT 100000000-content_bytes-media_bytes-reserved AS free FROM families WHERE id=?').bind(session.family).first();
     // Limit one recording to 32 MB to bound memory on a Workers isolate.
     const reserve=kind!=='voice'?64000:Math.min(budget.free,32000000);
     requireValue(reserve>=64000&&reserve<=budget.free,413,'家庭空间不足。');
-    await env.DB.prepare('INSERT INTO generation(family,id,fingerprint,kind,provider,model,style,input,reserve) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM families WHERE id=? AND 100000000-content_bytes-media_bytes-reserved>=?) ON CONFLICT(family,id) DO NOTHING').bind(session.family,id,fingerprint,kind,provider,model,style,input,reserve,session.family,reserve).run();
+    try{await env.DB.prepare('INSERT INTO generation(family,id,fingerprint,kind,provider,model,style,input,reserve,actor,config,settings) SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM families WHERE id=? AND 100000000-content_bytes-media_bytes-reserved>=?) ON CONFLICT(family,id) DO NOTHING').bind(session.family,id,fingerprint,kind,provider,model,style,input,reserve,actor,config,settings,session.family,reserve).run();}catch(e){
+      if(String(e.message).includes('service_budget')||String(e.cause?.message).includes('service_budget'))throw new ApiError(429,'本服务已达到用量限制，请查看每日次数、单篇及每月字数。');
+      throw e;
+    }
     job=await select(env,session.family,id);requireValue(job,409,'家庭剩余空间已变化。');
   }
+  requireValue(job.actor===actor,403,'任务属于另一位家长。');
   requireValue(job.fingerprint===fingerprint,409,'这个任务编号已被使用。');
   if(job.status==='queued')await env.JOBS.send({family:session.family,id});
   return json(publicJob(job),202);
@@ -32,7 +48,13 @@ export async function runJob(env,{family,id}){
   if(!claimed.meta.changes)return;
   const job=await select(env,family,id);
   try{
-    const key=await getSecret(env,family,job.provider);
+    Object.assign(job,JSON.parse(job.settings));
+    let key;
+    if(job.config){
+      const c=await serviceFor(env,family,job.config,job.actor);
+      requireValue(c.endpoint===job.endpoint&&c.provider===job.provider&&c.model===job.model,409,'排队期间配置已更改，请重新确认。');
+      key=await keyForConfig(env,family,c);
+    }else key=await getSecret(env,family,job.provider);
     let bytes=0,result='';
     if(job.kind==='voice'){
       const blob=await narrate(job,key);bytes=blob.size;
