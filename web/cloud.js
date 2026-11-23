@@ -102,11 +102,14 @@ function cloudBegin(s,type,style){
 }
 function cloudPoll(id){
   const job=state.jobs[id],epoch=cloudEpoch;
-  if(!adult||!job||polling.has(job.request))return;
-  polling.add(job.request);
+  if(!adult||!job)return;
+  const pollKey=epoch+':'+job.request;
+  if(polling.has(pollKey))return;
+  polling.add(pollKey);
   (async()=>{
     try{
       await flushCloud();
+      if(epoch!==cloudEpoch)return;
       const data={id:job.request,kind:job.type,provider:job.provider,style:job.voice,input:job.input,model:job.model};
       let result=await api('generation','POST',data);
       while(['queued','running'].includes(result.status)){
@@ -128,7 +131,7 @@ function cloudPoll(id){
       if([400,413,422].includes(e.status)){delete state.jobs[id];save();if(page==='edit')render();}
       else if(!cloudConflict)setTimeout(()=>{if(epoch===cloudEpoch)cloudPoll(id);},8000);
       notify(e.message);
-    }finally{polling.delete(job.request);}
+    }finally{polling.delete(pollKey);}
   })();
 }
 async function cloudPreview(s,style){

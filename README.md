@@ -27,6 +27,7 @@ Workers 提供同源 API，D1 保存家庭、会话、任务和加密后的凭�
 
 ```sh
 npm test
+npm run test:worker
 node tests/frontend-smoke.mjs http://127.0.0.1:8787/ --cloud
 ```
 
