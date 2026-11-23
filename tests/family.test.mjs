@@ -103,3 +103,18 @@ test('one-time adult invitation, individual configuration permissions and durabl
   await call('accounts/'+member.adult,'DELETE');
   assert.equal((await call('session/login','POST',{pass:member.pass}))[0],401);
 });
+test('custom gateway configuration checks public DNS and requires a fresh key for changes',async t=>{
+  const {call,env}=setup();env.PUBLIC_PROVIDER_GATEWAYS='1';
+  await call('session/create','POST');
+  let address='93.184.216.34';
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(new URL(url).hostname,'cloudflare-dns.com');
+    assert.equal(options.headers.Authorization,undefined);
+    return Response.json({Status:0,Answer:new URL(url).searchParams.get('type')==='A'?[{type:1,data:address}]:[]});
+  });
+  const c={provider:'openai',type:'write',model:'fixture',endpoint:'https://gateway.example/v1',key:'test-only-credential'};
+  assert.equal((await call('configs/gateway','PUT',c))[0],200);
+  assert.equal((await call('configs/gateway','PUT',{...c,endpoint:'https://other.example/v1',key:''}))[0],400);
+  address='192.168.1.1';
+  assert.equal((await call('configs/gateway','PUT',c))[0],400);
+});
