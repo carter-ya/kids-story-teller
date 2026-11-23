@@ -62,9 +62,23 @@ try {
     assert.equal(await js("adult"),false);
     assert.equal(await js("state.stories.length"),0);
     await click('[data-nav=create]');await fill('[name=pass]',pass);await click('#dialog-actions [type=submit]');await exists('#new-story');
-    await click('[data-nav=family]');await click('[data-act=logout]');await exists('.welcome');
+    await click('[data-nav=family]');await click('[data-act=invite-adult]');await fill('[name=name]','测试照护者');
+    await click('#dialog-actions [type=submit]');await exists('textarea[readonly]');const invite=await js("document.querySelector('textarea[readonly]').value");
+    await click('#dialog-actions [type=submit]');await click('[data-act=logout]');await exists('.welcome');
+    await click('#sign-in');await fill('[name=pass]',invite);await click('#dialog-actions [type=submit]');
+    await exists('textarea[readonly]');const personal=await js("document.querySelector('textarea[readonly]').value");
+    assert.notEqual(personal,invite);await click('#dialog-actions [type=submit]');
+    await click('[data-nav=family]');await exists('[data-act=logout]');
+    assert.equal(await js("document.querySelector('[data-act=remove-member],[data-act=erase-family]')===null"),true);
+    await click('[data-act=logout]');await exists('.welcome');
+    await click('#sign-in');await fill('[name=pass]',pass);await click('#dialog-actions [type=submit]');await exists('#edit-form');
+    await click('[data-nav=family]');await click('[data-act=revoke-adult]');await click('#dialog-actions [type=submit]');
+    await until(()=>js("document.querySelector('[data-act=revoke-adult]')===null"),'adult removed');
+    const revoked=await js("fetch('/api/session/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pass:"+JSON.stringify(personal)+"})}).then(r=>r.status)");
+    assert.equal(revoked,401);
+    await click('[data-act=erase-family]');await fill('[name=confirm]','删除整个家庭');await click('#dialog-actions [type=submit]');await exists('.welcome');
     assert.equal(await js('signedIn'),false);assert.deepEqual(errors,[]);
-    console.log('PASS · cloud household creation, onboarding, saved draft after reload, child isolation, adult login, logout');
+    console.log('PASS · cloud household creation, onboarding, saved draft after reload, child isolation, adult login, one-time invitation, removal, archive permissions and confirmed erasure');
   }else{
   await click('#sign-in');await fill('[name=login]','1234');
   await click('#dialog-actions [type=submit]');await exists('#guide-family');

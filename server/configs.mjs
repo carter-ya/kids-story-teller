@@ -2,11 +2,28 @@ import {admin,json,readJson,requireValue,validProvider} from './common.mjs';
 import {encrypt,decrypt} from './family.mjs';
 
 export function baseURL(provider){return 'https://api.'+provider+'.com/v1';}
-function approvedEndpoint(raw,provider,env){
+function publicAddress(address){
+  if(address.includes(':'))return /^[23][a-f0-9]{3}:/i.test(address)&&!/^2001:(?:db8|0*:|2:|10:|20:)/i.test(address)&&!/^2002:/i.test(address);
+  const octets=address.split('.').map(Number);const [a,b,c]=octets;
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)&&octets.every(n=>n<=255)&&a>0&&a<224&&![10,127].includes(a)
+    &&!(a===100&&b>=64&&b<=127)&&!(a===169&&b===254)&&!(a===172&&b>=16&&b<=31)
+    &&!(a===192&&(b===168||(b===0&&[0,2].includes(c))||(b===88&&c===99)))&&!(a===198&&([18,19].includes(b)||(b===51&&c===100)))&&!(a===203&&b===0&&c===113);
+}
+async function approvedEndpoint(raw,provider,env){
   let url;try{url=new URL(raw||baseURL(provider));}catch{}
   requireValue(url&&url.protocol==='https:'&&!url.username&&!url.password&&!url.search&&!url.hash,400,'请填写 HTTPS 服务根地址。');
   const origins=[new URL(baseURL(provider)).origin,...(env.PROVIDER_ORIGINS||'').split(',').map(x=>x.trim())];
-  requireValue(origins.includes(url.origin),400,'此自定义域名尚未开放，请管理员在部署配置 PROVIDER_ORIGINS 中添加其 HTTPS 来源。');
+  if(!origins.includes(url.origin)){
+    requireValue(env.PUBLIC_PROVIDER_GATEWAYS==='1'&&!url.port&&/^(?:[a-z0-9-]+\.)+[a-z]{2,63}$/i.test(url.hostname),400,'请使用公网 HTTPS 域名。私网预览使用管理员批准的网关。');
+    const addresses=await Promise.all(['A','AAAA'].map(async type=>{
+      const dns=new URL('https://cloudflare-dns.com/dns-query');dns.searchParams.set('name',url.hostname);dns.searchParams.set('type',type);
+      const res=await fetch(dns,{headers:{accept:'application/dns-json'},redirect:'manual',signal:AbortSignal.timeout(6000)});
+      requireValue(res.ok,503,'暂时无法验证服务域名。');
+      const answer=await res.json();requireValue(answer.Status===0,400,'服务域名无法解析。');
+      return (answer.Answer||[]).filter(a=>a.type===1||a.type===28).map(a=>a.data);
+    }));
+    requireValue(addresses.flat().length&&addresses.flat().every(publicAddress),400,'服务域名必须只解析到公网地址。');
+  }
   return url.href.replace(/\/+$/,'');
 }
 const fields='id, owner, provider, type, endpoint, model, shared AS share, daily AS perDay, monthly AS perMonth, per_story AS perStory';
@@ -23,7 +40,7 @@ export async function configs(req,env,session,id){
   requireValue(req.method==='PUT',405,'不支持此方法。');
   const c=await readJson(req,8192);validProvider(c.provider);
   requireValue(['voice','write'].includes(c.type)&&typeof c.model==='string'&&(c.type==='voice'?c.model==='':/^[\w.:-]{1,100}$/.test(c.model)),400,'请选择声音或输入有效模型。');
-  const endpoint=approvedEndpoint(c.endpoint,c.provider,env);
+  const endpoint=await approvedEndpoint(c.endpoint,c.provider,env);
   const limits=[c.perDay,c.perMonth,c.perStory].map(x=>Number(x||0));
   requireValue(limits.every(x=>Number.isSafeInteger(x)&&x>=0&&x<=1000000000),400,'用量上限须为非负整数。');
   let encrypted=existing?.encrypted;
@@ -36,9 +53,23 @@ export async function configs(req,env,session,id){
 }
 export async function serviceFor(env,family,id,actor){
   const c=await env.DB.prepare("SELECT * FROM service_configs WHERE family=? AND id=? AND (owner=? OR shared=1) AND (?='owner' OR EXISTS(SELECT 1 FROM adult_accounts WHERE family=? AND id=? AND pending=0))").bind(family,id,actor,actor,family,actor).first();
-  requireValue(c,403,'此服务未授权或已移除。');approvedEndpoint(c.endpoint,c.provider,env);
+  requireValue(c,403,'此服务未授权或已移除。');await approvedEndpoint(c.endpoint,c.provider,env);
   return c;
 }
 export async function keyForConfig(env,family,c){
   return decrypt(env,family,c.id+'@'+c.endpoint,Uint8Array.from(atob(c.encrypted),x=>x.charCodeAt(0)));
+}
+
+export async function checkConfig(req,env,session,id){
+  admin(session);requireValue(req.method==='POST',405,'不支持此方法。');
+  const c=await serviceFor(env,session.family,id,session.adult);
+  const key=await keyForConfig(env,session.family,c);
+  const response=await fetch(c.endpoint+'/models',{headers:{Authorization:'Bearer '+key},redirect:'manual',signal:AbortSignal.timeout(12000)});
+  requireValue(![401,403].includes(response.status),422,'密钥无效或无权读取模型列表。');
+  requireValue(response.status!==402,422,'服务商账户余额不足。');
+  requireValue(response.status!==429,429,'已达到服务商用量或并发限制。');
+  requireValue(response.ok,422,'无法读取模型列表，请核对服务地址及兼容协议。');
+  const answer=await response.json();
+  if(c.type==='write')requireValue(answer.data?.some(m=>m.id===c.model),422,'密钥可用，但模型列表中没有所选写作模型。');
+  return json({message:c.type==='write'?'已连接，密钥可访问所选模型。':'已连接模型服务。可在故事工作台试听一句，验证配音权限。'});
 }

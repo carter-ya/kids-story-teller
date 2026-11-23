@@ -118,6 +118,11 @@ document.addEventListener('change',e=>{if(e.target.name==='vendor'){
   const model=$('#dialog-body [name=model]');if(model)model.value=defaultModel(e.target.value);
   $('#dialog-body [name=endpoint]').value='https://api.'+e.target.value+'.com/v1';
 }});
+on('check-service',async(id,b)=>{
+  b.disabled=true;b.innerHTML=icon('paw')+' 正在连接';
+  try{notify((await api('configs/'+id+'/check','POST',{})).message);}
+  finally{b.disabled=false;b.textContent='检查连接';}
+});
 on('service-default',async id=>{const c=cloudServices.find(c=>c.id===id);(state.configDefaults||={})[cloudAdult+':'+c.type]=id;await refreshServices();save();render();});
 on('service-edit',id=>{const c=cloudServices.find(c=>c.id===id);cloudConfig(c.type,c);});
 on('service-delete',id=>confirmAction('删除个人配置？','此配置的密钥和家庭授权将被移除。','删除',async()=>{await api('configs/'+id,'DELETE');await refreshServices();render();}));
@@ -141,7 +146,7 @@ function cloudPoll(id){
       await flushCloud();
       if(epoch!==cloudEpoch)return;
       const data={id:job.request,kind:job.type,provider:job.provider,style:job.voice,input:job.input,model:job.model,config:job.managed?job.config:'',listener:job.listener||''};
-      let result=job.actor&&job.actor!==cloudAdult?await api('generation/'+job.request):await api('generation','POST',data);
+      let result=job.actor&&job.actor!==cloudAdult?await api('generation/'+job.request):job.attempt?await api('generation/'+job.request+'/retry','POST',{attempt:job.attempt}):await api('generation','POST',data);
       while(['queued','running'].includes(result.status)){
         await new Promise(r=>setTimeout(r,2000));
         if(epoch!==cloudEpoch)return;
@@ -149,12 +154,13 @@ function cloudPoll(id){
       }
       if(epoch!==cloudEpoch||!story(id)||state.jobs[id]?.request!==job.request)return;
       const s=story(id);
+      cloudMedia=result.mediaBytes;
       if(result.status==='done'){
-        cloudMedia=result.mediaBytes;
+        if(job.type==='voice')delete s.failedVoice;
         if(job.type==='write')s.text=result.text;
         else{s.recordings.unshift({id:result.id,cloud:true,title:job.title,text:job.input,voice:job.voice,provider:job.provider,bytes:result.bytes,duration:result.duration});advanceTour(3,4,id);}
         state.usage.push({at:Date.now(),type:job.type,config:job.config,chars:job.input.length});
-      }else notify(result.error||'任务未完成，稿件已保留。');
+      }else{if(job.type==='voice'&&result.retryable)s.failedVoice={...job,completed:result.completed};notify(result.error||'任务未完成，稿件已保留。');}
       delete state.jobs[id];s.updated=Date.now();save();if(page==='edit'||page==='create')render();
     }catch(e){
       if(epoch!==cloudEpoch)return;
@@ -186,6 +192,7 @@ async function dialogJob(label,data){
       r=await api('generation/'+id);
     }
     if(!panel.isConnected||epoch!==cloudEpoch)return;
+    cloudMedia=r.mediaBytes;
     if(r.status!=='done')throw Error(r.error||'生成失败。');
     return r;
   }catch(e){if(panel.isConnected)$('#dialog-error').textContent=e.message;}
@@ -194,3 +201,38 @@ function playTake(r,art){
   loadItem({id:r.id,recording:r.id,cover:cover(art),text:r.text,title:r.title,voice:r.voice,duration:r.duration,audio:'/api/audio/'+encodeURIComponent(r.id)},true);
   dialog('试听朗读','<p>'+html(r.title)+' · '+html(r.voice)+' · AI 合成</p>',act('toggle','播放 / 暂停')+submitBtn('结束试听'),()=>{stopPlayback();accepted()},stopPlayback);play();
 }
+
+on('retry-voice',()=>{const s=story(routeId),failed=s?.failedVoice;
+  if(!failed||failed.actor!==cloudAdult)return;
+  confirmAction('继续上次的配音？','已完成的片段会复用。再次请求剩余片段可能产生服务商费用。','继续配音',()=>{
+    state.jobs[s.id]={...failed,attempt:uid()+uid()};save();render();cloudPoll(s.id);
+  });
+});
+on('archive-family',async()=>{
+  await flushCloud();
+  const link=document.createElement('a');link.href='/api/family/archive';link.download='family-stories.tar';link.click();
+});
+on('erase-family',()=>dialog('永久删除整个家庭','<p>故事、录音、封面、成员和密钥都将删除。需要保留的内容请先导出。</p>'+input('confirm','请输入「删除整个家庭」'),submitBtn('永久删除'),async d=>{
+  const confirm=d.get('confirm');if(confirm!=='删除整个家庭')throw Error('确认文字不匹配。');
+  stopPlayback();await flushCloud();await api('family','DELETE',{confirm});
+  await enterCloud({});accepted();go('welcome');
+}));
+document.addEventListener('change',async event=>{
+  const field=event.target;if(field.id!=='cover-upload')return;
+  const file=field.files?.[0],s=story(routeId),epoch=cloudEpoch;if(!file||!s)return;
+  field.disabled=true;
+  try{
+    if(file.size>12000000)throw Error('请选择小于 12 MB 的图片。');
+    const bitmap=await createImageBitmap(file);
+    const scale=Math.min(1,900/Math.max(bitmap.width,bitmap.height));
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+    canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',0.82));
+    if(!blob||blob.type!=='image/webp')throw Error('此浏览器无法保存 WebP 封面。');
+    if(epoch!==cloudEpoch)return;
+    const r=await fetch('/api/covers',{method:'POST',headers:{'Content-Type':'image/webp','X-Story-Family':cloudFamily},body:blob});
+    const data=await r.json();if(!r.ok)throw Error(data.error);
+    if(epoch!==cloudEpoch||story(s.id)!==s)return;
+    s.cover=data.cover;cloudMedia+=data.bytes;markCloud();await flushCloud();render();notify('封面已保存。');
+  }catch(e){notify(e.message);}finally{field.disabled=false;}
+});

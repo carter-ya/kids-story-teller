@@ -82,12 +82,13 @@ function editor(){
   if(job)return `<div class="wrap section-page"><div class="card wait" role="status"><span class="bob" aria-hidden="true">${icon('fox',50)}${icon(job.type==='write'?'pen':'headphones',28)}</span><h2>${jobLabel(job)}</h2><p>当前稿件已保存，可以稍后回来。</p><div class="bone"></div>${act('create','回内容库')}</div></div>`;
   return `<div class="wrap section-page">${state.tourV2?.story===s.id?coach(3)+coach(4):''}${act('create','家庭内容库','light')}<div class="head"><h1 style="font-size:2.2rem">故事工作台</h1><span class="pill">${s.archived?'已归档':s.published?'已发布 · 可继续改稿':'草稿'}</span></div>
   <div class="card"><form id="edit-form">${input('title','标题',s.title)}${area('text','故事正文',s.text,8)}
-  <small id="save-state">${cloud?'草稿自动同步到家庭书架':'草稿自动保存于当前浏览器'}</small><details><summary>封面、系列与版本</summary>${pick('cover','封面主题',covers,s.cover)}${input('series','系列',s.series)}
+  <small id="save-state">${cloud?'草稿自动同步到家庭书架':'草稿自动保存于当前浏览器'}</small><details><summary>封面、系列与版本</summary>${pick('cover','封面主题',s.cover?.startsWith('cover-')?[...covers,[s.cover,'我的图片','flower']]:covers,s.cover)}${cloud?'<label>上传自己的封面<input type="file" accept="image/png,image/jpeg,image/webp" id="cover-upload"></label>':''}${input('series','系列',s.series)}
   <div class="check-list">${s.versions.map((v,i)=>act('restore','恢复「'+html(v.title)+'」 · '+new Date(v.at).toLocaleTimeString(),'secondary',String(i))).join('')||'保存版本后可在这里恢复。'}</div></details>
   <div class="actions">${submitBtn('保存版本')}${act('rewrite','改写一段','secondary')}${!s.text?act('regen','生成草稿','secondary'):''}</div></form></div>
   <div class="card"><h2>给故事配音</h2><p class="hint">${cloud?'录音由 AI 合成。先试听一小句，满意后再生成整篇。':'本地体验使用设备中文朗读。'}</p>
   ${pick('voice','声音',voices,state.prefs[state.kid]?.voice||voices[0][0])}<div class="actions">${act('short-preview','试听一句')}${act('record','生成朗读','primary')}</div>
-  ${s.recordings.map(r=>`<div class="list-row"><div class="grow"><strong>${html(r.title)}</strong><div class="meta">${html(r.voice)} · 约 ${time(r.duration)}${s.published?.rid===r.id?' · 已发布':''}</div></div>${act('audition','试听','secondary',r.id)}${act('publish','放进书架','primary',r.id)}${act('drop-record','删除录音','light',r.id)}</div>`).join('')}</div>
+  ${cloud&&s.failedVoice&&s.failedVoice.actor===cloudAdult?'<p>上次已保存 '+Number(s.failedVoice.completed||0)+' 段。</p>'+act('retry-voice','继续生成剩余片段'):''}
+  ${s.recordings.map(r=>`<div class="list-row"><div class="grow"><strong>${html(r.title)}</strong><div class="meta">${html(r.voice)} · 约 ${time(r.duration)}${s.published?.rid===r.id?' · 已发布':''}</div></div>${act('audition','试听','secondary',r.id)}${act('publish','放进书架','primary',r.id)}${r.cloud?'<a class="secondary" download="story.wav" href="/api/audio/'+encodeURIComponent(r.id)+'">下载音频</a>':''}${act('drop-record','删除录音','light',r.id)}</div>`).join('')}</div>
   <details class="card"><summary>作品管理</summary><div class="actions">${act('sequel','写下一集')}${act('export','导出文本')}${act('archive',s.archived?'移出归档':'归档')}${s.published?act('unpublish','撤回发布'):''}${act('delete-story','删除作品','danger')}</div></details></div>`;
 }
 function storeForm(){

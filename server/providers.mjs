@@ -24,11 +24,15 @@ export function wavHeader(bytes){
   return new Uint8Array(b);
 }
 const voiceFailure=()=>new ApiError(502,'配音未完整返回，请检查服务商权限和用量。');
+function checkProviderStatus(status){
+  const message={401:'服务商未接受此密钥，请检查或更换。',403:'此密钥没有调用所选模型的权限。',402:'服务商账户余额不足。',404:'服务地址或模型不存在。',429:'服务商账户已达到用量或并发限制。'}[status];
+  if(message)throw new ApiError(502,message);
+}
 async function synthesize(provider,key,style,text,append,connect,base){
   const preset=voiceStyles[style],isOpenAI=provider==='openai';
   const url=(base||'https://api.'+provider+'.com/v1')+(isOpenAI?'/realtime?model='+realtime:'/tools/tts?format=pcm&voice_id='+preset.deepseek);
   const res=await connect(url,{headers:{Upgrade:'websocket',Authorization:'Bearer '+key},redirect:'manual',signal:AbortSignal.timeout(20000)});
-  const ws=res.webSocket;if(!ws)throw voiceFailure();
+  checkProviderStatus(res.status);const ws=res.webSocket;if(!ws)throw voiceFailure();
   await new Promise((resolve,reject)=>{
     let finished=false,submitted=false,received=0;
     const finish=error=>{
@@ -61,22 +65,35 @@ async function synthesize(provider,key,style,text,append,connect,base){
     }catch(error){finish(error);}
   });
 }
-export async function narrate(job,key,connect=fetch){
-  const audio=[];let size=44;
-  const append=data=>{
-    requireValue(size+data.byteLength<=job.reserve,413,'朗读超过可用空间，建议分成较短的章节。');
-    audio.push(data);size+=data.byteLength;
-  };
-  for(const part of sections(job.input,job.provider==='openai'?340:4000)){
-    await synthesize(job.provider,key,job.style,part,append,connect,job.endpoint);
+export async function narrate(job,key,connect=fetch,checkpoint=null){
+  const audio=[],parts=sections(job.input,job.provider==='openai'?340:640);
+  const capacity=job.reserve+(job.bytes||0);
+  let size=44,remaining=[...job.input].length;
+  for(const [index,part] of parts.entries()){
+    let blob;
+    remaining-=[...part].length;
+    if(checkpoint&&index<job.completed){
+      blob=await checkpoint.load(index);
+    }else{
+      const frames=[];let count=0;
+      await synthesize(job.provider,key,job.style,part,data=>{
+        count+=data.byteLength;
+        requireValue(size+count<=capacity,413,'朗读超过可用空间，建议分成较短的章节。');
+        frames.push(data);
+      },connect,job.endpoint);
+      requireValue(count>0&&count%2===0,502,'片段音频不完整。');
+      blob=new Blob(frames);
+      if(checkpoint)await checkpoint.save(index,blob,remaining);
+    }
+    size+=blob.size;audio.push(blob);
   }
-  requireValue(size>44&&(size-44)%2===0,502,'配音返回的数据不完整。');
+  requireValue(size>44&&size<=capacity,502,'录音不完整。');
   return new Blob([wavHeader(size-44),...audio],{type:'audio/wav'});
 }
 export async function writeStory(job,key,connect=fetch){
   const url=job.endpoint?job.endpoint+'/chat/completions':job.provider==='openai'?'https://api.openai.com/v1/chat/completions':'https://api.deepseek.com/chat/completions';
   const r=await connect(url,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(120000),headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({model:job.model,...(job.provider==='openai'?{max_completion_tokens:3000}:{max_tokens:3000,thinking:{type:'disabled'}}),messages:[{role:'system',content:job.kind==='rewrite'?'按照家长提供的修改要求润色儿童故事的这一段。只输出替换用的一个段落，保持人物、事实和人称一致，避免惊吓。':'为儿童写一篇约 400 字的温柔中文故事。只输出可直接朗读的正文。避免惊吓、暴力和私人联系方式。'},...(job.age||job.avoid?[{role:'user',content:'听众年龄段：'+(job.age||'不限')+'。请避开：'+(job.avoid||'无')+'。'}]:[]),{role:'user',content:job.input}]})});
-  requireValue(r.ok,502,'写作服务未完成，请检查模型和额度。');
+  checkProviderStatus(r.status);requireValue(r.ok,502,'写作服务未完成，请检查模型和额度。');
   const answer=(await r.json()).choices?.[0];
   requireValue(answer?.finish_reason==='stop'&&typeof answer.message?.content==='string'&&answer.message.content.trim()&&answer.message.content.length<=16000,502,'写作服务未返回完整故事。');
   return answer.message.content.trim();
