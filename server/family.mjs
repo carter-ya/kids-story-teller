@@ -103,6 +103,10 @@ export async function saveShelf(env,family,revision,state){
   await env.DB.prepare('INSERT INTO chores VALUES(?,?,unixepoch()+86400)').bind(key,family).run();
   await env.FILES.put(key,payload);
   const changed=await env.DB.prepare('UPDATE families SET revision=revision+1,shelf_key=?,content_bytes=?,profile_count=? WHERE ?+(SELECT count(*) FROM adult_accounts WHERE family=? AND pending=0)<=20 AND id=? AND revision=? AND ?+reserved+media_bytes<=100000000').bind(key,size,state.people.length,state.people.length,family,family,revision,size).run();
+  if(!changed.meta.changes){
+    const accepted=await env.DB.prepare('SELECT count(*) AS count FROM adult_accounts WHERE family=? AND pending=0').bind(family).first();
+    requireValue(state.people.length+accepted.count<=20,422,'家庭已满 20 人，请先整理成员。');
+  }
   requireValue(changed.meta.changes===1,409,'书架版本或剩余空间已变化，请重新载入。');
   return revision+1;
 }
