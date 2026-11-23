@@ -23,11 +23,6 @@
       "bucket_name": "story-family-files"
     }
   ],
-  "triggers": {
-    "crons": [
-      "*/10 * * * *"
-    ]
-  },
   "queues": {
     "producers": [
       {

@@ -1,15 +1,17 @@
-import {coverAsset,familyArchive,eraseFamily,collectAssets} from './assets.mjs';
+import {wakeMaintenance,maintenanceMessage,clean} from './maintenance.mjs';
+import {coverAsset,familyArchive,eraseFamily} from './assets.mjs';
 import {configs,checkConfig} from './configs.mjs';
 import {accounts} from './accounts.mjs';
-import {submit,retryVoice,generation,runJob,maintainJobs} from './generation.mjs';
+import {submit,retryVoice,generation,runJob} from './generation.mjs';
 import {ApiError,json,requireValue} from './common.mjs';
-import {apiSession,apiShelf,credentials,sessionFor,collectShelves} from './family.mjs';
+import {apiSession,apiShelf,credentials,sessionFor} from './family.mjs';
 
 export default {
-  async fetch(req,env){
+  async fetch(req,env,ctx){
     const {origin,pathname:path}=new URL(req.url);
     if(!path.startsWith('/api/'))return env.ASSETS.fetch(req);
     try{
+      ctx?.waitUntil(wakeMaintenance(env));
       if(!['GET','HEAD'].includes(req.method))requireValue(req.headers.get('Origin')===origin,403,'此操作需要从当前站点发起。');
       const session=await sessionFor(req,env);
       const expected=req.headers.get('X-Story-Family');
@@ -39,6 +41,7 @@ export default {
       return json({error:'找不到接口。'},404);
     }catch(error){return json({error:error instanceof ApiError?error.message:'暂时无法完成操作。'},error instanceof ApiError?error.status:500);}
   },
-  async queue(batch,env){for(const message of batch.messages){await runJob(env,message.body);message.ack();}},
-  async scheduled(_,env){await collectShelves(env);await maintainJobs(env);await collectAssets(env);}
+  async queue(batch,env){for(const message of batch.messages){if(Number.isSafeInteger(message.body?.maintenance))await maintenanceMessage(env,message);
+    else{await runJob(env,message.body);message.ack();}}},
+  async scheduled(_,env){await clean(env);}
 };
