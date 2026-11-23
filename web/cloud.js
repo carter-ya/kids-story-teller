@@ -154,9 +154,9 @@ function cloudPoll(id){
       }
       if(epoch!==cloudEpoch||!story(id)||state.jobs[id]?.request!==job.request)return;
       const s=story(id);
+      cloudMedia=result.mediaBytes;
       if(result.status==='done'){
         if(job.type==='voice')delete s.failedVoice;
-        cloudMedia=result.mediaBytes;
         if(job.type==='write')s.text=result.text;
         else{s.recordings.unshift({id:result.id,cloud:true,title:job.title,text:job.input,voice:job.voice,provider:job.provider,bytes:result.bytes,duration:result.duration});advanceTour(3,4,id);}
         state.usage.push({at:Date.now(),type:job.type,config:job.config,chars:job.input.length});
@@ -192,6 +192,7 @@ async function dialogJob(label,data){
       r=await api('generation/'+id);
     }
     if(!panel.isConnected||epoch!==cloudEpoch)return;
+    cloudMedia=r.mediaBytes;
     if(r.status!=='done')throw Error(r.error||'生成失败。');
     return r;
   }catch(e){if(panel.isConnected)$('#dialog-error').textContent=e.message;}
