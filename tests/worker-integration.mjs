@@ -24,7 +24,7 @@ const upstream=`let once=true;const read=new Set();export default {async fetch(r
 }}`;
 
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[
-  { name:'app',modules:['worker','assets','common','accounts','configs','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
+  { name:'app',modules:['worker','maintenance','assets','common','accounts','configs','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
     outboundService:'provider-fixture',d1Databases:['DB'],r2Buckets:['FILES'],
     queueProducers:{JOBS:'audio'},queueConsumers:{audio:{maxBatchSize:1,maxBatchTimeout:0}},
     bindings:{VAULT_KEY:randomBytes(32).toString('hex')} },
@@ -32,7 +32,7 @@ const mf=new Miniflare(convertV4MiniflareOptions({workers:[
 ]}));
 try{
   const db=await mf.getD1Database('DB','app');
-  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql']){
+  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql']){
     let sql='';
     for(const line of readFileSync('migrations/'+fn,'utf8').trim().split('\n')){
       sql+=line+'\n';
@@ -78,6 +78,8 @@ try{
   const image=readFileSync('web/assets/fox.webp');
   const uploaded=await api('covers','POST',image,{'Content-Type':'image/webp'});assert.equal(uploaded.status,201);
   const {cover}=await uploaded.json(),coverPath='covers/'+cover.slice(6);
+  const heartbeat=await db.prepare('SELECT tick,last_success FROM maintenance WHERE id=1').first();
+  assert.ok(heartbeat.tick>1&&heartbeat.last_success>0,'first queue maintenance cycle finished');
   const state={people:[{id:'kid',name:'小兔',kind:'孩子'}],stories:[{id:'story',text:'正文',title:'故事',versions:[],recordings:takes,published:{cover,rid:takes[0].id,kids:['kid']}}],configs:[]};
   assert.equal((await api('library','PUT',{revision:0,state})).status,200);
   const archive=await api('family/archive');assert.equal(archive.status,200);
