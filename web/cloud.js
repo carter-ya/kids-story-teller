@@ -1,6 +1,10 @@
 // The static preview keeps its own local household. Worker sessions always start from the server.
 let cloud=false,cloudRevision=0,cloudFamily=null,cloudDirty=false,cloudFlight=null,cloudTimer,cloudConflict=false,cloudMedia=0;
 let cloudEpoch=0,cloudAdult=null,cloudAccounts=[],cloudServices=[];
+let shelfWrites=Promise.resolve();
+function serializeShelfWrite(action){
+  const write=shelfWrites.then(action);shelfWrites=write.catch(()=>{});return write;
+}
 const childChanges=new Map(),polling=new Set();
 async function api(path,method='GET',body){
   const response=await fetch('/api/'+path,{method,cache:'no-store',credentials:'same-origin',headers:{...(body?{'Content-Type':'application/json'}:{}),...(cloudFamily?{'X-Story-Family':cloudFamily}:{})},body:body?JSON.stringify(body):undefined});
@@ -44,7 +48,7 @@ async function flushCloud(){
   cloudFlight=(async()=>{
     while(cloudDirty){
       cloudDirty=false;
-      if(adult){const row=await api('library','PUT',{revision:cloudRevision,state});cloudRevision=row.revision;}
+      if(adult){await serializeShelfWrite(async()=>{const row=await api('library','PUT',{revision:cloudRevision,state});cloudRevision=row.revision;});}
       else for(const [id,patch] of childChanges){
         await api('library','PATCH',{id,...patch});if(childChanges.get(id)===patch)childChanges.delete(id);
       }
@@ -154,7 +158,10 @@ function cloudPoll(id){
       delete state.jobs[id];s.updated=Date.now();save();if(page==='edit'||page==='create')render();
     }catch(e){
       if(epoch!==cloudEpoch)return;
-      if([400,403,413,422,429].includes(e.status)){delete state.jobs[id];save();if(page==='edit')render();}
+      if(!cloudConflict&&[400,403,409,413,422,429].includes(e.status)){
+        delete state.jobs[id];save();if(page==='edit')render();
+        if([403,409,422].includes(e.status))await refreshServices().catch(()=>{});
+      }
       else if(!cloudConflict)setTimeout(()=>{if(epoch===cloudEpoch)cloudPoll(id);},8000);
       notify(e.message);
     }finally{polling.delete(pollKey);}
