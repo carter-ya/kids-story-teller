@@ -112,7 +112,10 @@ on('rewrite',()=>{
     const idx=Number(d.get('paragraph')),wish=d.get('instruction').trim();
     const proposed=wish.includes('短')?paras[idx].split(/[，。]/)[0]+'。':'夜色轻轻落下来。'+paras[idx].replace(/[！!]/g,'。');
     dialog('确认改写',area('replacement','改写结果（可编辑）',proposed,4),submitBtn('替换这一段'),v=>{
-      const edited=v.get('replacement').trim();if(!edited)throw Error('请输入正文。');snapshot(s);paras[idx]=edited;s.text=paras.join('\n\n');save();accepted();render();
+      const edited=v.get('replacement').trim();if(!edited)throw Error('请输入正文。');const next=paras.map((p,i)=>i===idx?edited:p).join('\n\n');
+      const previous={title:s.title,text:s.text,at:Date.now()};
+      if(used()+bytes(JSON.stringify(previous))+bytes(JSON.stringify(next))-bytes(JSON.stringify(s.text))+2>limitBytes)throw Error('空间不足，请先整理旧版本。');
+      snapshot(s);s.text=next;save();accepted();render();
     });
   });
 });

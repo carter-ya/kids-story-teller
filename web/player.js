@@ -5,10 +5,10 @@ function remember(force=false){
   if(!signedIn || !now || now.preview || (!force && Date.now()-lastStamp<5000))return;
   state.progress[keyFor(now)]={pos:position(),at:Date.now()};lastStamp=Date.now();save();
 }
-function stopPlayback(){
+function stopPlayback(keepTimer=false){
   if(now)remember(true);
   speechRun++;deviceVoice()?.cancel();audio.pause();audio.removeAttribute('src');audio.load();
-  now=null;isPlaying=false;speechPos=0;clearTimeout(sleepTimer);sleepUntil=0;
+  now=null;isPlaying=false;speechPos=0;if(!keepTimer){clearTimeout(sleepTimer);sleepUntil=0;}
   updateMini();
 }
 function pausePlayback(){
@@ -51,7 +51,7 @@ async function play(){
 function seek(pos){if(!now)return;pos=Math.max(0,Math.min(now.duration,pos));if(now.audio){if(audio.readyState)audio.currentTime=pos;}else{const playing=isPlaying;pausePlayback();speechPos=pos;if(playing)speak();}remember(true);syncPlayer();}
 function loadItem(item,preview=false){
   if(now?.id===item.id && now?.recording===item.recording && now?.preview===preview)return;
-  stopPlayback();now={...item,preview};const pos=preview?0:state.progress[keyFor(item)]?.pos||0;
+  stopPlayback(true);now={...item,preview};const pos=preview?0:state.progress[keyFor(item)]?.pos||0;
   if('mediaSession' in navigator && 'MediaMetadata' in window)navigator.mediaSession.metadata=new MediaMetadata({title:item.title,artist:'晚安邮局',artwork:[{src:new URL(item.cover,location.href).href,type:'image/webp'}]});
   if(item.audio){audio.src=item.audio;const id=item.id;audio.onloadedmetadata=()=>{if(now?.id!==id)return;now.duration=audio.duration||item.duration;audio.currentTime=Math.min(pos,now.duration-.1);syncPlayer()};}
   else speechPos=pos>=item.duration?0:pos;
