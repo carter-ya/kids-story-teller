@@ -164,12 +164,13 @@ function cloudPoll(id){
       delete state.jobs[id];s.updated=Date.now();save();if(page==='edit'||page==='create')render();
     }catch(e){
       if(epoch!==cloudEpoch)return;
-      if(!cloudConflict&&[400,403,409,413,422,429].includes(e.status)){
+      const missingRemote=e.status===404&&job.actor&&job.actor!==cloudAdult;
+      if(!cloudConflict&&(missingRemote||[400,403,409,413,422,429].includes(e.status))){
         delete state.jobs[id];save();if(page==='edit')render();
         if([403,409,422].includes(e.status))await refreshServices().catch(()=>{});
       }
       else if(!cloudConflict)setTimeout(()=>{if(epoch===cloudEpoch)cloudPoll(id);},8000);
-      notify(e.message);
+      notify(missingRemote?'另一位家长的任务尚未提交，稿件已保留。可选择自己的服务重新生成。':e.message);
     }finally{polling.delete(pollKey);}
   })();
 }
