@@ -120,7 +120,7 @@ function rewriteParagraph(){
     let proposed;
     if(cloud){
       const c=configsFor('write').find(c=>c.preferred)||configsFor('write')[0];
-      const r=await dialogJob('正在润色这一段',{kind:'rewrite',provider:c.provider,model:c.model,style:'',input:'修改要求：'+wish+'\n原文：'+paras[idx]});
+      const r=await dialogJob('正在润色这一段',{kind:'rewrite',listener:state.kid,config:c.managed?c.id:'',provider:c.provider,model:c.model,style:'',input:'修改要求：'+wish+'\n原文：'+paras[idx]});
       if(!r)return;proposed=r.text;
     }else proposed=wish.includes('短')?paras[idx].split(/[，。]/)[0]+'。':'夜色轻轻落下来。'+paras[idx].replace(/[！!]/g,'。');
     dialog('确认改写',area('replacement','改写结果（可编辑）',proposed,4),submitBtn('替换这一段'),v=>{
