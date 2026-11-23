@@ -34,9 +34,12 @@ on('member',()=>{
     if(cloud){
       await flushCloud();
       const member={id:uid(),name,kind:'孩子'};
-      const next={...state,people:[...state.people,member]};
-      const row=await api('library','PUT',{revision:cloudRevision,state:next});
-      cloudRevision=row.revision;state.people.push(member);accepted();render();return;
+      await serializeShelfWrite(async()=>{
+        const next={...state,people:[...state.people,member]};
+        const row=await api('library','PUT',{revision:cloudRevision,state:next});
+        cloudRevision=row.revision;state.people.push(member);
+      });
+      accepted();render();return;
     }
     else if(d.get('kind')==='成人'){(state.invites||=[]).push({id:uid(),name});notify('本地邀请已创建，可在等待加入列表预演接受。');}
     else state.people.push({id:uid(),name,kind:'孩子'});
