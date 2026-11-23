@@ -27,5 +27,21 @@
     "crons": [
       "*/10 * * * *"
     ]
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "JOBS",
+        "queue": "story-narration"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "story-narration",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3
+      }
+    ]
   }
 }

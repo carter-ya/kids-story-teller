@@ -3,17 +3,19 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import worker from '../server/worker.mjs';
+import {generation,runJob} from '../server/generation.mjs';
 import {getSecret} from '../server/family.mjs';
 
 function setup(){
   const db=new DatabaseSync(':memory:');
   db.exec(readFileSync(new URL('../migrations/0001_family.sql',import.meta.url),'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0002_generation.sql',import.meta.url),'utf8'));
   const DB={prepare(sql){
     const stmt=db.prepare(sql);
     const bind=(...args)=>({bind,first:()=>stmt.get(...args),run:()=>({meta:stmt.run(...args)}),all:()=>({results:stmt.all(...args)})});
     return bind();
   },batch(stmts){db.exec('BEGIN');try{const r=stmts.map(s=>s.run());db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}}};
-  const files=new Map(),env={DB,VAULT_KEY:'ab'.repeat(32),FILES:{put:(k,v)=>files.set(k,v),get:k=>files.has(k)?{json:()=>JSON.parse(files.get(k))}:null,delete:k=>files.delete(k)}};
+  const files=new Map(),env={DB,JOBS:{send:async()=>{}},VAULT_KEY:'ab'.repeat(32),FILES:{put:(k,v)=>files.set(k,v),get:k=>files.has(k)?{json:()=>JSON.parse(files.get(k))}:null,delete:k=>files.delete(k)}};
   let token='';
   async function call(path,method='GET',body,origin='https://example.test'){
     const res=await worker.fetch(new Request('https://example.test/api/'+path,{method,headers:{origin,cookie:token,'content-type':'application/json'},body:body&&JSON.stringify(body)}),env);
@@ -44,4 +46,33 @@ test('household sessions, encrypted credentials, quotas and child access',async(
   await call('session/create','POST');
   assert.equal((await call('credentials/openai'))[1].configured,false);
   assert.equal((await call('library'))[1].state,null);
+});
+test('queue redelivery only buys one story and reservation settles once',async t=>{
+  const {call,env,db}=setup(),{family}=(await call('session/create','POST'))[1];
+  const job={id:'request-test-0001',kind:'write',provider:'deepseek',model:'deepseek-flash',input:'月亮和小兔'};
+  assert.equal((await call('generation','POST',job))[0],422);
+  await call('credentials/deepseek','PUT',{key:'fixture-value'});
+  assert.equal((await call('generation','POST',job))[0],202);
+  assert.equal((await call('generation','POST',job))[0],202);
+  assert.equal((await call('generation','POST',{...job,input:'另一个故事'}))[0],409);
+  assert.equal(db.prepare('SELECT reserved FROM families').get().reserved,64000);
+  const upstream=t.mock.method(globalThis,'fetch',async()=>Response.json({choices:[{finish_reason:'stop',message:{content:'晚安，小兔。'}}]}));
+  await Promise.all([runJob(env,{family,id:job.id}),runJob(env,{family,id:job.id})]);
+  assert.equal((await call('generation','POST',job))[1].mediaBytes,Buffer.byteLength('晚安，小兔。'));
+  assert.equal(upstream.mock.callCount(),1);assert.equal((await call('generation/'+job.id))[1].text,'晚安，小兔。');
+  assert.deepEqual({...db.prepare('SELECT reserved,media_bytes FROM families').get()},{reserved:0,media_bytes:Buffer.byteLength('晚安，小兔。')});
+  await call('session/create','POST');assert.equal((await call('generation/'+job.id))[0],404);
+});
+test('private audio enforces publication, withdrawal and byte ranges',async()=>{
+  const {call,env,db}=setup(),{family}=(await call('session/create','POST'))[1];
+  const id='recording-12345',state={people:[{id:'kid',name:'听众',kind:'孩子'}],stories:[{id:'book',text:'正文',title:'故事',versions:[],recordings:[{id}],published:{rid:id,kids:['kid']}}],configs:[]};
+  assert.equal((await call('library','PUT',{revision:0,state}))[0],200);
+  db.prepare("INSERT INTO generation (family,id,fingerprint,kind,provider,model,style,input,status,reserve,bytes) VALUES(?,?,'fixture','voice','openai','','','','done',0,48)").run(family,id);
+  const kid={family,kid:'kid'},request=(method,range)=>new Request('https://example.test/api/audio/'+id,{method,headers:range?{Range:range}:{}});
+  const part=await generation(request('HEAD','bytes=12-19'),env,kid,id,true);
+  assert.equal(part.status,206);assert.equal(part.headers.get('Content-Length'),'8');assert.equal(part.headers.get('Content-Range'),'bytes 12-19/48');
+  assert.equal((await generation(request('HEAD','bytes=100-'),env,kid,id,true)).status,416);
+  await assert.rejects(generation(request('HEAD'),env,{family:'another-family',kid:null},id,true),{status:404});
+  state.stories[0].published=null;assert.equal((await call('library','PUT',{revision:1,state}))[0],200);
+  await assert.rejects(generation(request('HEAD'),env,kid,id,true),{status:404});
 });

@@ -11,23 +11,24 @@ function family(){
   else{
     const since=new Date();since.setDate(1);since.setHours(0,0,0,0);
     const logs=state.usage.filter(e=>e.at>=since.getTime());
-    inner='<div class="card"><h2>家庭用量</h2><div class="usage">'+[['故事',state.stories.length,100,'篇'],['家人',count,20,'人'],['空间',+(size/1e6).toFixed(2),100,'MB']].map(([n,v,max,unit])=>`<div class="meter">${n}<strong>${v} / ${max} ${unit}</strong><progress value="${v}" max="${max}" aria-label="${n}用量"></progress></div>`).join('')+'</div><p class="hint">内置绘本由平台提供。评审中的设备朗读按预估音频大小计入模拟空间。</p><p>本月写故事 '+logs.filter(j=>j.type==='write').length+' 次，朗读 '+logs.filter(j=>j.type==='voice').reduce((n,j)=>n+j.chars,0)+' 字。</p><div class="actions">'+act('create','整理作品')+act('family-export','导出家庭故事')+'</div></div>';
+    inner='<div class="card"><h2>家庭用量</h2><div class="usage">'+[['故事',state.stories.length,100,'篇'],['家人',count,20,'人'],['空间',+(size/1e6).toFixed(2),100,'MB']].map(([n,v,max,unit])=>`<div class="meter">${n}<strong>${v} / ${max} ${unit}</strong><progress value="${v}" max="${max}" aria-label="${n}用量"></progress></div>`).join('')+'</div><p class="hint">' + (cloud?'空间包括家庭稿件与录音。删除录音后，后台会回收已释放的空间。':'内置绘本由平台提供。设备朗读按预估大小计入模拟空间。') + '</p><p>本月写故事 '+logs.filter(j=>j.type==='write').length+' 次，朗读 '+logs.filter(j=>j.type==='voice').reduce((n,j)=>n+j.chars,0)+' 字。</p><div class="actions">'+act('create','整理作品')+act('family-export','导出家庭故事')+'</div></div>';
   }
   return `<div class="wrap section-page">${title('我的家庭','家长专用空间')}<div class="tabs">${[['members','家人'],['services','模型与声音'],['usage','用量']].map(([v,n])=>act('family-tab',n,'tab '+(familyTab===v?'on':''),v)).join('')}</div>${inner}
-  <div class="card"><div class="row between"><div><h3>家庭书架使用帮助</h3><p class="meta">当前为前端评审，数据保存在此浏览器。</p></div><div class="row">${act('guide','新手引导')}${act('logout','退出登录','light')}${act('lock','交给孩子','primary')}</div></div></div></div>`;
+  <div class="card"><div class="row between"><div><h3>家庭书架使用帮助</h3><p class="meta">${cloud?'使用家庭登录码可在其他设备打开书架。':'本地体验数据保存在此浏览器。'}</p></div><div class="row">${act('guide','新手引导')}${act('logout','退出登录','light')}${act('lock','交给孩子','primary')}</div></div></div></div>`;
 }
 function serviceList(){
-  return '<div class="card"><h2>模型与声音</h2><p class="hint">此处预演服务配置。密钥字段仅用于体验输入，不会保存或发送。</p>'+capabilities.map(([t,n])=>'<div class="head"><h3>'+n+'</h3>'+act('add-config','添加配置','light',t)+'</div>'+
-    (configsFor(t).map(c=>`<div class="list-row"><div class="grow"><strong>${html(c.name)}</strong> ${c.preferred?'<span class="pill">默认</span>':''}<div class="meta">${html(c.model)} · ${c.share?'家庭成人可使用':'仅自己使用'}</div></div>${!c.preferred?act('default-config','设为默认','light',c.id):''}${act('config-edit','编辑','secondary',c.id)}${act('config-delete','删除','light',c.id)}</div>`).join('')||'<p class="meta">尚未配置，首次使用时可选择本地示例。</p>')).join('')+'</div>';
+  return '<div class="card"><h2>模型与声音</h2><p class="hint">' + (cloud?'家长选择平台，填一次密钥，就能开始使用。':'此处预演服务配置，密钥字段仅用于体验输入。') + '</p>'+capabilities.map(([t,n])=>'<div class="head"><h3>'+n+'</h3>'+act('add-config','添加配置','light',t)+'</div>'+
+    (configsFor(t).map(c=>`<div class="list-row"><div class="grow"><strong>${html(c.name)}</strong> ${c.preferred?'<span class="pill">默认</span>':''}<div class="meta">${html(c.model||providerName(c.provider)+' 配音')} · ${c.share?'家庭成人可使用':'仅自己使用'}</div></div>${!c.preferred?act('default-config','设为默认','light',c.id):''}${act('config-edit','编辑','secondary',c.id)}${act('config-delete','删除','light',c.id)}</div>`).join('')||'<p class="meta">尚未配置，首次使用时可连接服务。</p>')).join('')+(cloud?'<div class="actions">'+['openai','deepseek'].map(p=>act('forget-key','移除 '+providerName(p)+' 密钥','light',p)).join('')+'</div>':'')+'</div>';
 }
 pages.set('family',family);
-on('lock',()=>{stopPlayback();adult=false;sessionStorage.removeItem('post-office-adult');go('shelf')});on('family-tab',id=>{familyTab=id;render()});
+on('lock',()=>{if(cloud)return changeCloudRole(state.kid);stopPlayback();adult=false;sessionStorage.removeItem('post-office-adult');go('shelf')});on('family-tab',id=>{familyTab=id;render()});
 on('member',()=>{
   if(state.people.length>=20){notify('家人已满 20 人，可先在「家人」中整理。');return;}
   dialog('添加家人',pick('kind','身份',[['孩子','孩子','rabbit'],['成人','成人照护者','sun']],'孩子')+input('name','昵称','',24),submitBtn('添加'),d=>{
     const name=d.get('name').trim();if(!name)throw Error('请输入昵称。');
     if(state.people.length>=20)throw Error('本家庭最多可容纳 20 人。');
-    if(d.get('kind')==='成人'){(state.invites||=[]).push({id:uid(),name});notify('本地邀请已创建，可在等待加入列表预演接受。');}
+    if(d.get('kind')==='成人'&&cloud)state.people.push({id:uid(),name,kind:'成人'});
+    else if(d.get('kind')==='成人'){(state.invites||=[]).push({id:uid(),name});notify('本地邀请已创建，可在等待加入列表预演接受。');}
     else state.people.push({id:uid(),name,kind:'孩子'});
     save();accepted();render();
   });
@@ -56,6 +57,7 @@ on('kid-prefs',id=>{
   });
 });
 function configDialog(type,existing,after){
+  if(cloud)return cloudConfig(type,existing,after);
   const c=existing||{name:typeName(type)+'示例',model:type==='write'?'story-local':'voice-local',endpoint:'',share:false};
   const body=pick('provider','服务商',[['sample','内置示例','fox'],['custom','自定义服务','pen']],c.provider||'sample')+
     input('name','配置名称',c.name)+input('model','模型名称',c.model)+

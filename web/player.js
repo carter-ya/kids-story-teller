@@ -3,7 +3,7 @@ const deviceVoice=()=>window.speechSynthesis;
 const position=()=>!now?0:now.audio?(audio.currentTime||0):Math.min(now.duration,speechPos+(isPlaying?(Date.now()-speechClock)/1000:0));
 function remember(force=false){
   if(!signedIn || !now || now.preview || (!force && Date.now()-lastStamp<5000))return;
-  state.progress[keyFor(now)]={pos:position(),at:Date.now()};lastStamp=Date.now();save();
+  state.progress[keyFor(now)]={pos:position(),at:Date.now()};lastStamp=Date.now();listenerChange(now.id,{progress:state.progress[keyFor(now)].pos});save();
 }
 function stopPlayback(keepTimer=false){
   if(now)remember(true);
@@ -90,7 +90,7 @@ function playerPage(){
         <figure class="story-window"><img src="${item.cover}" alt="${html(item.title)}的故事插画"><figcaption>${icon('envelope',18)} 晚安邮局</figcaption></figure><span class="stage-moon" aria-hidden="true">${icon('moon',48)}</span>
       </div>
       <div class="radio-face"><div class="fox-tab" aria-hidden="true">${icon('fox',56)}</div><p class="radio-series">${icon('headphones',18)} ${html(item.theme)}</p>
-        <h1>${html(item.title)}</h1><p class="radio-source">${item.audio?'普通话故事录音':'设备中文朗读'}</p>
+        <h1>${html(item.title)}</h1><p class="radio-source">${item.recording&&item.audio?'AI 合成朗读':item.audio?'普通话故事录音':'设备中文朗读'}</p>
         <div class="sound-track"><label class="sr-only" for="seek">播放进度</label><input id="seek" type="range" min="0" max="${now.duration}" step=".1" value="${position()}"><div id="clock" class="meta"></div></div>
         <div class="transport"><button data-act="rewind" aria-label="后退 10 秒">${icon('skip-back',26)}<small>10 秒</small></button>
         <button id="play-button" class="play-disc" data-act="toggle" aria-label="播放"><span class="show-play">${icon('play',32)}</span><span class="show-pause">${icon('pause',32)}</span></button>
