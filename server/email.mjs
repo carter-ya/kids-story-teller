@@ -32,22 +32,22 @@ export async function sendEmailCode(req,env) {
   const ip = req.headers.get('CF-Connecting-IP') || 'local';
   await reserve(env.DB,'ip:'+await signature(env,'ip:'+ip),3600,20);
   const id = newToken(), code = newCode();
-  const inserted = await env.DB.prepare(`INSERT INTO email_challenges(email,id,digest,sent) VALUES(?,?,?,unixepoch())
-    ON CONFLICT(email) DO UPDATE SET id=excluded.id,digest=excluded.digest,sent=excluded.sent,attempts=0
-    WHERE sent<=unixepoch()-60 RETURNING id`).bind(email,id,await signature(env,id+':'+code)).first();
-  requireValue(inserted,429,'请在上一封邮件发出 60 秒后重试。');
-  try {
-    await reserve(env.DB,'mail:'+await signature(env,'mail:'+email),3600,6);
-    await reserve(env.DB,'outbox',86400,Number(env.EMAIL_DAILY_LIMIT)||100);
-    const response = await fetch('https://api.resend.com/emails',{method:'POST',headers:{
-      Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':id
-    },body:JSON.stringify({from:env.RESEND_FROM,to:[email],subject:'晚安邮局 · 登录验证码',
-      text:'你的验证码是 '+code+'，10 分钟内有效。请勿转发。如果不是你发起的登录，可以忽略这封邮件。'})});
-    requireValue(response.ok,503,'验证码邮件暂时未能发出，请稍后再试。');
-  } catch(error) {
-    await env.DB.prepare('DELETE FROM email_challenges WHERE id=?').bind(id).run();
-    throw error;
-  }
+  const mailbox=await signature(env,'mail:'+email);
+  const cooling=await env.DB.prepare(`INSERT INTO email_send_limits VALUES(?,unixepoch()+60,1)
+    ON CONFLICT(bucket) DO UPDATE SET expires=excluded.expires WHERE expires<=unixepoch() RETURNING used`)
+    .bind('cooldown:'+mailbox).first();
+  requireValue(cooling,429,'请在上一封邮件发出 60 秒后重试。');
+  await reserve(env.DB,'mail:'+mailbox,3600,6);
+  await reserve(env.DB,'outbox',86400,Number(env.EMAIL_DAILY_LIMIT)||100);
+  const response = await fetch('https://api.resend.com/emails',{method:'POST',signal:AbortSignal.timeout(15000),headers:{
+    Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':id
+  },body:JSON.stringify({from:env.RESEND_FROM,to:[email],subject:'晚安邮局 · 登录验证码',
+    text:'你的验证码是 '+code+'，10 分钟内有效。请勿转发。如果不是你发起的登录，可以忽略这封邮件。'})}).catch(()=>null);
+  requireValue(response?.ok,503,'验证码邮件暂时未能发出，请稍后再试。');
+  // The previous code stays usable until Resend accepts its replacement.
+  await env.DB.prepare(`INSERT INTO email_challenges(email,id,digest,sent) VALUES(?,?,?,unixepoch())
+    ON CONFLICT(email) DO UPDATE SET id=excluded.id,digest=excluded.digest,sent=excluded.sent,attempts=0`)
+    .bind(email,id,await signature(env,id+':'+code)).run();
   return json({id});
 }
 
