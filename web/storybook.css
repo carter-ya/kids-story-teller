@@ -4,3 +4,43 @@
 .coach{display:flex;gap:15px;align-items:flex-start;padding:20px;margin-bottom:20px;border:1px solid #debd83;background:#fff2d8;border-radius:20px}.coach-face{width:52px;text-align:center}.coach small{font-weight:700;color:#825c37}.coach p{margin-top:3px;color:#5c5443}.coach .primary{margin-top:8px}
 body.night{background:#e3eadd}.night .mast{background:#f6f7ec}.listening-room{max-width:980px;padding-top:20px}.room-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;color:#405a4c}.room-nav span,.room-back,.radio-tool,.transcript summary{display:inline-flex;align-items:center;gap:7px}.room-back{min-height:44px;padding:0 6px}.storybook-player{display:grid;grid-template-columns:1.04fr 1fr;border:2px solid #6e8670;border-radius:39px;box-shadow:0 7px 0 #a6b7a3,0 18px 35px #35523d13;overflow:hidden;background:#fbf1d9}.player-stage{position:relative;display:grid;place-items:center;background:#344e55;background-image:radial-gradient(ellipse at 65% 5%,#748679 0,transparent 50%),linear-gradient(155deg,#39555c,#283d4b);padding:56px 32px;isolation:isolate}.story-window{width:min(91%,350px);background:#fff1d0;padding:10px 10px 0;margin:0;border:1px solid #f9deaa;box-shadow:5px 8px #192e3c5c;transform:rotate(-3deg);border-radius:80px 80px 9px 9px;z-index:1}.story-window img{width:100%;aspect-ratio:1.15;object-fit:cover;border-radius:72px 72px 3px 3px;display:block}.story-window figcaption{justify-content:center;padding:9px;color:#6b6047;font-family:Georgia,"Songti SC",serif}.stage-star,.stage-moon{position:absolute;color:#edcf8a}.star-one{top:7%;left:6%}.star-two{right:6%;top:40%}.stage-moon{bottom:4%;right:7%;transform:rotate(-12deg)}.radio-face{text-align:center;align-self:center;padding:24px clamp(20px,3.5vw,50px)}.fox-tab{display:grid;place-content:center;margin:0 auto 4px}.radio-series{justify-content:center;font-size:.88rem}.radio-face h1{font-size:clamp(2rem,4vw,3.1rem);margin:8px 0;overflow-wrap:anywhere}.radio-source{color:#6b6951;font-size:.88rem}.sound-track{margin:24px 0 10px}.sound-track #seek{appearance:none;width:100%;height:8px;border-radius:8px;background:linear-gradient(to right,#50765f var(--played,0%),#d8cfb8 0);cursor:pointer}.sound-track #seek::-webkit-slider-thumb{appearance:none;border-radius:50%;width:20px;height:20px;border:3px solid #fff3ce;background:#54755f;box-shadow:0 0 0 1px #607d62}.sound-track #seek::-moz-range-thumb{border-radius:50%;width:14px;height:14px;background:#54755f;border:3px solid #fff3ce}.sound-track .meta{text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums}.transport,.radio-tools,.listen-invite{display:flex;align-items:center;justify-content:center;gap:18px}.transport button{display:grid;place-items:center;min-width:46px;min-height:46px}.transport small{font-size:.76rem}.transport .play-disc{width:70px;height:70px;border-radius:50%;background:#e8b565;color:#423d2b;border:2px solid #a67c44;box-shadow:0 4px 0 #b68a55,inset 0 0 0 5px #f4ca87}.play-disc .show-pause,.play-disc[data-playing=true] .show-play{display:none}.play-disc[data-playing=true] .show-pause{display:inline}.radio-tools{gap:10px;margin-top:20px}.radio-tool{padding:8px 13px;min-height:42px;border-radius:30px;border:1px solid #cfc2a7;color:#534f3b;background:#fff8e6}.transcript{padding:18px 22px;border:1px solid #ccd7c5;border-radius:19px;background:#f6f8ec;margin:22px 0}.transcript .quote{margin:15px 0;line-height:1.95}.listen-invite{flex-wrap:wrap}.mascot,.avatar,.heart{display:inline-grid;place-content:center}
 @media(max-width:730px){.mail-hero{grid-template-columns:1fr;padding:24px;gap:26px}.mail-copy h1 br{display:none}.mail-copy h1{font-size:clamp(2rem,8.8vw,3rem)}.postcard{max-width:460px;width:97%;justify-self:center}.postcard img{aspect-ratio:1.9}.welcome .visitor-steps .grid{grid-template-columns:1fr}.visitor-steps .grid>div{margin-bottom:8px}.mast-inner:has(#sign-in:not([hidden])){padding-block:12px}.storybook-player{grid-template-columns:1fr;border-radius:28px}.player-stage{padding:18px;min-height:170px}.story-window{width:min(58%,240px);border-radius:40px 40px 6px 6px;padding:6px 6px 0}.story-window img{border-radius:35px 35px 2px 2px;aspect-ratio:1.65}.story-window figcaption{padding:4px;font-size:.78rem}.radio-face{position:relative;padding:20px}.fox-tab{position:absolute;top:9px;left:12px}.fox-tab svg{width:36px;height:36px}.sound-track{margin:16px 0 7px}.radio-tools{margin-top:14px}.listening-room{padding-top:8px}.room-nav{margin-bottom:5px}.coach{padding:14px;gap:8px}.coach-face{width:32px}.coach-face svg{width:32px}.radio-face h1{margin:5px 0}.visitor-steps{margin-top:18px}}
+
+/* Mask the content in place so line wrapping, image ratios and button sizes
+   are identical at every breakpoint. The page owns one shared light band. */
+.home-icon { display:inline-grid; place-items:center; vertical-align:middle; flex:none }
+.postcard-art { position:relative; overflow:hidden; border-radius:4px }
+@property --home-light {
+  syntax:"<length>";
+  inherits:true;
+  initial-value:0px;
+}
+@keyframes home-sweep {
+  from { --home-light:-18vw }
+  to { --home-light:118vw }
+}
+#app[aria-busy="true"] {
+  --home-light:-18vw;
+  --home-mask:linear-gradient(104deg,#d4dfcf calc(var(--home-light) - 14vw),#edf2e6 var(--home-light),#d4dfcf calc(var(--home-light) + 14vw));
+  animation:home-sweep 2s linear infinite;
+}
+#app[aria-busy="true"] :is(.home-ink,.home-icon,.actions button,.tabs button,.heart,.eyebrow,.cover,.hero-art,.book-title),
+#app[aria-busy="true"] .postcard-art::after {
+  color:transparent;
+  background-color:#d4dfcf;
+  background-image:var(--home-mask);
+  background-size:100vw 100vh;
+  background-attachment:fixed;
+  border-color:transparent;
+}
+#app[aria-busy="true"] .home-ink {
+  mask-image:linear-gradient(transparent 15%,#000 16% 82%,transparent 83%);
+  border-radius:.18em;
+  -webkit-box-decoration-break:clone;
+  box-decoration-break:clone;
+}
+#app[aria-busy="true"] .postcard-art::after { content:""; position:absolute; inset:0 }
+#app[aria-busy="true"] :is(.actions button,.heart,.cover,.hero-art,.home-icon) > :is(img,svg,span) { visibility:hidden }
+#app[aria-busy="true"] .book-title .home-ink { background:none }
+@media(prefers-reduced-motion:reduce) {
+  #app[aria-busy="true"] { --home-mask:none }
+}

@@ -1,4 +1,5 @@
 // Run against a running static preview, using a separate temporary Chrome profile.
+import {verifyHomeLayout} from './home-layout.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -40,8 +41,12 @@ try {
   async function click(selector){await exists(selector);await js('document.querySelector('+JSON.stringify(selector)+').click()');}
   async function fill(selector,value){await exists(selector);await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}))})()`);}
   await send('Runtime.enable');
+  if(process.argv.includes('--home-layout')){
+    await verifyHomeLayout({send,js,until,site,output:process.env.STORY_SCREENSHOTS});
+    assert.deepEqual(errors,[]);
+  }else{
   await send('Page.navigate',{url:site});
-  await exists('.mail-hero');
+  await exists('#app:not([inert]) .mail-hero');
   assert.equal(await js("document.querySelector('.mast nav').hidden"),true);
   await click('[data-act=guest-listen]');
   await until(()=>js('document.querySelector("audio").currentTime>0'),'guest sample playback');
@@ -126,6 +131,7 @@ try {
   await click('#sign-in');await fill('[name=login]','1234');await click('#dialog-actions [type=submit]');await exists('.hero-art img');
   assert.deepEqual(errors,[]);
   console.log('PASS · guest landing/audio, login, five-step onboarding, skip/replay, guest route isolation, playback, parent unlock, custom picker, create/edit/record/publish, members, child access, persistence, mobile layout, all three family quotas');
+  }
   }
 } finally {
   socket?.close();
