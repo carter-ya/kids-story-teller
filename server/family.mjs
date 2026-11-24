@@ -1,3 +1,4 @@
+import {sendEmailCode,verifyEmailCode} from './email.mjs';
 import {owner,accountList} from './accounts.mjs';
 import {admin,ApiError,hash,json,newToken,readJson,requireValue,validProvider} from './common.mjs';
 
@@ -19,40 +20,16 @@ async function sessionResponse(req,env,family,kid,old,extra={},adult='owner'){
   return json({family,kid,adult:kid?null:adult,...extra},200,{'Set-Cookie':cookie(req,token,ttl)});
 }
 export async function apiSession(req,env,path,session){
-  if(path==='/api/session'&&req.method==='GET')return json({cloud:true,family:session?.family||null,kid:session?.kid||null,adult:session?.kid?null:session?.adult});
+  if(path==='/api/session'&&req.method==='GET'){
+    const emailBound=session && session.kid===null && Boolean(await env.DB.prepare(
+      'SELECT 1 FROM email_accounts WHERE family=? AND adult=?').bind(session.family,session.adult).first());
+    return json({cloud:true,family:session?.family||null,kid:session?.kid||null,adult:session?.kid?null:session?.adult,emailBound:Boolean(emailBound)});
+  }
   if(req.method!=='POST')return;
-  if(path==='/api/session/create'){
-    const id=crypto.randomUUID(),pass='story-'+newToken();
-    await env.DB.prepare('INSERT INTO families(id,pass_hash,personal_login,profile_count) VALUES(?,?,1,2)').bind(id,await hash(pass)).run();
-    return sessionResponse(req,env,id,null,session,{pass});
-  }
-  if(path==='/api/session/login'){
-    const {pass}=await readJson(req);
-    requireValue(typeof pass==='string' && /^(story|invite)-[a-f0-9]{64}$/.test(pass),401,'登录码不正确。');
-    const digest=await hash(pass);
-    const account=await env.DB.prepare('SELECT * FROM adult_accounts WHERE pass_hash=?').bind(digest).first();
-    if(account){
-      let personal;
-      if(account.pending){
-        personal='story-'+newToken();
-        const accepted=await env.DB.prepare('UPDATE adult_accounts SET pass_hash=?,pending=0 WHERE pass_hash=? AND expires>unixepoch() AND pending=1 AND (SELECT profile_count FROM families WHERE id=?) + (SELECT count(*) FROM adult_accounts WHERE family=? AND pending=0)<20').bind(await hash(personal),digest,account.family,account.family).run();
-        requireValue(accepted.meta.changes,409,'邀请已过期、已使用或家庭已满。');
-      }
-      return sessionResponse(req,env,account.family,null,session,personal?{pass:personal}:{},account.id);
-    }
-    const family=await env.DB.prepare('SELECT id FROM families WHERE pass_hash=?').bind(digest).first();
-    requireValue(family,401,'登录码不正确。');
-    return sessionResponse(req,env,family.id,null,session);
-  }
-  if(path==='/api/session/rotate'){
-    owner(session);const pass='story-'+newToken();
-    const current=await shelf(env,session.family);
-    const count=current.state?.people.length||2;
-    await env.DB.batch([
-      env.DB.prepare('UPDATE families SET pass_hash=?,personal_login=1,profile_count=CASE WHEN revision=? THEN ? ELSE profile_count END WHERE id=?').bind(await hash(pass),current.revision,count,session.family),
-      env.DB.prepare("DELETE FROM sessions WHERE family=? AND adult='owner' AND token<>?").bind(session.family,session.token)
-    ]);
-    return json({pass});
+  if(path==='/api/session/email/send')return sendEmailCode(req,env);
+  if(path==='/api/session/email/verify'){
+    const {family,adult}=await verifyEmailCode(req,env,session);
+    return sessionResponse(req,env,family,null,session,{emailBound:true},adult);
   }
   if(path==='/api/session/logout'){
     if(session)await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(session.token).run();

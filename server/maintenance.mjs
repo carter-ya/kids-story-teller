@@ -12,6 +12,10 @@ export async function wakeMaintenance(env){
   if(row)await env.JOBS.send({maintenance:row.tick});
 }
 export async function clean(env){
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM email_challenges WHERE sent<=unixepoch()-600'),
+    env.DB.prepare('DELETE FROM email_send_limits WHERE expires<=unixepoch()')
+  ]);
   await collectAssets(env);await collectShelves(env);await maintainJobs(env);
 }
 export async function maintenanceMessage(env,message){

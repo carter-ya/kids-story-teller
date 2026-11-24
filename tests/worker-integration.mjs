@@ -4,8 +4,12 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
-const upstream=`let once=true;const read=new Set();export default {async fetch(req) {
+const upstream=`let once=true;let code;const read=new Set();export default {async fetch(req) {
   const url=new URL(req.url);
+  if(url.hostname==='api.resend.com' && url.pathname==='/emails'){
+    code=(await req.json()).text.match(/[0-9]{6}/)[0];return Response.json({id:'fixture'});
+  }
+  if(url.hostname==='mailbox.test')return new Response(code);
   if(!['api.openai.com','api.deepseek.com'].includes(url.hostname)||req.headers.get('Authorization')!=='Bearer test-fixture-only')return new Response(null,{status:401});
   if(url.pathname.includes('chat/completions'))return Response.json({choices:[{finish_reason:'stop',message:{content:'小兔回到家。'}}]});
   const [client,server]=Object.values(new WebSocketPair());server.accept();
@@ -24,15 +28,15 @@ const upstream=`let once=true;const read=new Set();export default {async fetch(r
 }}`;
 
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[
-  { name:'app',modules:['worker','maintenance','assets','common','accounts','configs','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
+  { name:'app',modules:['worker','email','maintenance','assets','common','accounts','configs','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
     outboundService:'provider-fixture',d1Databases:['DB'],r2Buckets:['FILES'],
     queueProducers:{JOBS:'audio'},queueConsumers:{audio:{maxBatchSize:1,maxBatchTimeout:0}},
-    bindings:{VAULT_KEY:randomBytes(32).toString('hex')} },
+    bindings:{RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test',VAULT_KEY:randomBytes(32).toString('hex')} },
   { name:'provider-fixture',modules:true,script:upstream,compatibilityDate:'2026-08-01' }
 ]}));
 try{
   const db=await mf.getD1Database('DB','app');
-  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql']){
+  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql','0006_email_login.sql']){
     let sql='';
     for(const line of readFileSync('migrations/'+fn,'utf8').trim().split('\n')){
       sql+=line+'\n';
@@ -44,7 +48,15 @@ try{
     const r=await mf.dispatchFetch('https://family.example/api/'+p,{method,headers:{Origin:'https://family.example',Cookie:cookie,'Content-Type':'application/json',...headers},body:data instanceof Uint8Array?data:data?JSON.stringify(data):undefined});
     if(r.headers.has('Set-Cookie'))cookie=r.headers.get('Set-Cookie').split(';')[0];return r;
   }
-  const login=await (await api('session/create','POST',{})).json();assert.ok(login.pass);
+  async function signIn(){
+    const response=await api('session/email/send','POST',{email:'parent@example.test'});
+    assert.equal(response.status,200);
+    const {id}=await response.json();
+    const fixture=await mf.getWorker('provider-fixture');
+    const code=await (await fixture.fetch('https://mailbox.test')).text();
+    return api('session/email/verify','POST',{id,code});
+  }
+  assert.equal((await signIn()).status,200);
   assert.equal((await api('credentials/openai','PUT',{key:'test-fixture-only'})).status,200);
   const write={id:'workerd-write-test',kind:'write',provider:'openai',model:'fixture',input:'小兔'};
   await api('generation','POST',write);
@@ -88,8 +100,9 @@ try{
   assert.equal((await api('audio/'+takes[0].id)).status,200);
   assert.equal((await api('audio/'+takes[1].id)).status,404);
   assert.equal((await api(coverPath)).status,200);assert.equal((await api('family/archive')).status,403);
-  await api('session/login','POST',{pass:login.pass});
+  await db.prepare('UPDATE email_challenges SET sent=sent-61').run();
+  assert.equal((await signIn()).status,200);
   assert.equal((await api('family','DELETE',{confirm:'删除整个家庭'})).status,200);
-  assert.equal((await api('session/login','POST',{pass:login.pass})).status,401);
+  assert.equal((await api('library')).status,401);
   console.log('PASS isolated workerd gateways → real local queue / D1 / R2 → authenticated WAV ranges and child publication for both providers');
 }finally{await mf.dispose();}
