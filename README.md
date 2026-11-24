@@ -1,6 +1,6 @@
 # 晚安邮局
 
-家长写故事、听审 AI 朗读并发布到孩子的私人书架。[产品方案](docs/product-design.md)和[概念交互图](docs/interaction-map.html)记录页面与交互约定。声音体验与技术实现分别见[声音产品文档](docs/voice-product.md)和[声音技术文档](docs/voice-architecture.md)。
+家长写故事、听审 AI 朗读并发布到孩子的私人书架。[产品方案](docs/product-design.md)和[概念交互图](docs/interaction-map.html)记录页面与交互约定。[绘本版视觉交互图](docs/picturebook-concept.html)可切换首页、书架和播放器；三张封面的制作说明见[绘本插画](docs/picturebook-art.md)。声音体验与技术实现分别见[声音产品文档](docs/voice-product.md)和[声音技术文档](docs/voice-architecture.md)。
 
 ## 运行云端家庭版
 

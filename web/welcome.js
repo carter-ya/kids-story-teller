@@ -3,6 +3,7 @@ let signedIn = sessionStorage.getItem('post-office-login') === 'yes';
 function frontHeader(guest = !signedIn) {
   $('.brand').href = guest ? '#welcome' : '#shelf';
   $('.mast nav').hidden = guest;
+  $('.guest-links').hidden = !guest || page==='player';
   $('#profile').hidden = guest;
   $('#sign-in').hidden = !guest;
 }
@@ -41,6 +42,9 @@ on('logout',()=>{
   accepted();stopPlayback();signedIn=false;adult=false;filter='all';
   sessionStorage.removeItem('post-office-adult');sessionStorage.removeItem('post-office-login');go('welcome');
 });
+for(const [action,selector] of [['browse-samples','.sample-shelf'],['about-stories','.visitor-steps']]){
+  on(action,()=>$(selector)?.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'}));
+}
 on('guest-listen',id=>openPlayer(id,true));
 
 function activeTour(){return signedIn && state.tourV2?.step>0 && state.tourV2.step<=5;}
@@ -53,11 +57,11 @@ function resumeTour() {
   go('edit',tour.story);
 }
 const tourSteps=[
-  ['为谁寄故事？','给小听众取个昵称。这会出现在孩子自己的书架上。'],
-  ['写下第一个想法','点选一个灵感或写下自己的，随后点「写故事」。也可以导入已有的故事。'],
+  ['谁来听故事？','这个名字会印在孩子的书架上。'],
+  ['写下第一个想法','选一个点子，或写下孩子今天问过的问题。'],
   ['读稿，再给故事配音','读一遍故事，可以直接改字。满意后在「给故事配音」点「生成朗读」。'],
   ['把朗读放进书架','可以先试听，再点录音旁的「放进书架」，选一位听众。'],
-  ['点开第一封声音来信','故事已发布。点下方按钮，打开刚刚做好的一篇。']
+  ['听听刚做好的故事','故事已发布。点下方按钮，打开刚刚做好的一篇。']
 ];
 function coach(step){
   const t=state.tourV2;if(!activeTour()||t.step!==step)return '';
