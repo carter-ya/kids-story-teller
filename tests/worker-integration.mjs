@@ -100,7 +100,7 @@ try{
   assert.equal((await api('audio/'+takes[0].id)).status,200);
   assert.equal((await api('audio/'+takes[1].id)).status,404);
   assert.equal((await api(coverPath)).status,200);assert.equal((await api('family/archive')).status,403);
-  await db.prepare('UPDATE email_challenges SET sent=sent-61').run();
+  await db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%'").run();
   assert.equal((await signIn()).status,200);
   assert.equal((await api('family','DELETE',{confirm:'删除整个家庭'})).status,200);
   assert.equal((await api('library')).status,401);

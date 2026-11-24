@@ -38,7 +38,7 @@ export async function emailBrowserFixture(){
       }
     }
     return {url:(await mf.ready).href,code:email=>inbox.get(email),
-      advanceCooldown:email=>db.prepare('UPDATE email_challenges SET sent=sent-61 WHERE email=?').bind(email).run(),
+      advanceCooldown:()=>db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%'").run(),
       close:()=>mf.dispose()};
   }catch(error){await mf.dispose();throw error;}
 }

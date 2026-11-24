@@ -38,7 +38,7 @@ function setup(){
     }finally{globalThis.fetch=original;}
   }
   async function login(email='owner@example.test',claim){
-    db.prepare('UPDATE email_challenges SET sent=sent-61 WHERE email=?').run(email);
+    db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%'").run();
     const challenge=await receive(email);
     return call('session/email/verify','POST',{...challenge,claim});
   }
@@ -147,11 +147,12 @@ test('verified mailbox is required, challenges expire and each code works once',
   const wrong=challenge.code==='000000'?'000001':'000000';
   for(let i=0;i<5;i++)assert.equal((await verify({...challenge,code:wrong}))[0],401);
   assert.equal((await verify(challenge))[0],401);
-  db.prepare('UPDATE email_challenges SET sent=sent-61').run();
+  db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%'").run();
   const expired=await receive(email);
   db.prepare('UPDATE email_challenges SET sent=sent-601').run();
   assert.equal((await verify(expired))[0],401);
   assert.equal(db.prepare('SELECT count(*) n FROM families').get().n,0);
+  db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%'").run();
   const valid=await receive(email);
   const results=await Promise.all([verify(valid),verify(valid)]);
   assert.deepEqual(results.map(r=>r[0]).sort(),[200,401]);
@@ -170,4 +171,17 @@ test('migrating a legacy account preserves its family and retires the old proof'
   assert.equal((await login('other@example.test',pass))[0],409);
   assert.equal((await login('parent@example.test'))[1].family,'original');
   assert.equal(db.prepare('SELECT count(*) AS n FROM families').get().n,1);
+});
+
+test('a transport error or sending budget cannot invalidate an already delivered code',async t=>{
+  const {db,env,call,receive}=setup();
+  const email='original@example.test',first=await receive(email);
+  const allowResend=()=>db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%'").run();
+  allowResend();
+  const mail=t.mock.method(globalThis,'fetch',async()=>new Response(null,{status:503}));
+  assert.equal((await call('session/email/send','POST',{email}))[0],503);
+  allowResend();env.EMAIL_DAILY_LIMIT='1';
+  assert.equal((await call('session/email/send','POST',{email}))[0],429);
+  assert.equal(mail.mock.callCount(),1);
+  assert.equal((await call('session/email/verify','POST',first))[0],200);
 });
