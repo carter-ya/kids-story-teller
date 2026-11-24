@@ -123,11 +123,11 @@ const icon = (() => {
 })();
 
 const flows = {
-  first:{name:'家长第一次做故事',steps:['welcome','sample','unlock','setup','idea','key','writing','draft','voice','recording','publish','shelf','player'],review:'家长能否先听到故事，再只填一句想法？确认费用和发布对象时，是否知道下一步会发生什么？'},
+  first:{name:'家长第一次做故事',steps:['welcome','sample','unlock','emailCode','setup','idea','key','writing','draft','voice','recording','publish','shelf','player'],review:'家长能否先听到故事，再只填一句想法？确认费用和发布对象时，是否知道下一步会发生什么？'},
   child:{name:'孩子回来听',steps:['loading','shelf','player'],review:'孩子能否认出昨天的封面，一次点击就从上次的位置继续听？等待、暂停和结束是否容易区分？'},
   quota:{name:'家长遇到额度限制',steps:['usage','limit','organize','resume'],review:'能否说清哪项额度用尽、怎样腾出相应额度，以及是否还能回去听已有的故事？'}
 };
-const names={welcome:'访客首页',sample:'示例播放',unlock:'家长登录',setup:'设置听众',idea:'写故事',key:'连接写作服务',writing:'正在写',draft:'确认稿件',voice:'确认声音',recording:'生成朗读',publish:'试听与发布',loading:'书架加载',shelf:'我的书架',player:'继续播放',usage:'家庭用量',limit:'操作受限',organize:'整理与确认',resume:'继续原操作'};
+const names={welcome:'访客首页',sample:'示例播放',unlock:'家长邮箱',emailCode:'邮箱验证码',setup:'设置听众',idea:'写故事',key:'连接写作服务',writing:'正在写',draft:'确认稿件',voice:'确认声音',recording:'生成朗读',publish:'试听与发布',loading:'书架加载',shelf:'我的书架',player:'继续播放',usage:'家庭用量',limit:'操作受限',organize:'整理与确认',resume:'继续原操作'};
 const quotas={
   stories:{name:'故事',value:'100 / 100 个',action:'写新故事',message:'书架已放满 100 个故事。',clean:'导出后删除一个旧草稿',result:'99 / 100 个'},
   people:{name:'家人',value:'20 / 20 人',action:'添加家人',message:'家里已有 20 位成员。',clean:'确认移除已离开的成人成员',result:'19 / 20 人'},
@@ -227,7 +227,8 @@ function show(id){
   const panels={
     welcome:[art(icon('mail',46)),'把晚安，讲成故事。','从一个小念头，做成孩子自己的枕边故事。',btn('开启家庭书架','unlock',true)+btn('先听一篇','sample')],
     sample:[art(icon('moon',46)),'月亮邮差','访客试听 · 仅开放公共绘本录音',btn('登录家庭书架','unlock',true)],
-    unlock:[art(icon('lock',46)),'家长登录','登录后，继续本家庭的故事和书架。',btn('模拟登录','setup',true)],
+    unlock:[art(icon('mail',46)),'家长邮箱','输入家长邮箱，首次验证会创建家庭。',btn('发送验证码','emailCode',true)],
+    emailCode:[art(icon('lock',46)),'查看验证码邮件','填写邮件中的六位验证码，10 分钟内有效。',btn('验证并继续','setup',true)],
     setup:[art(icon('rabbit',46)),'为谁寄故事？','新手引导从设置听众开始，再写故事、审稿配音、发布和收听。',btn('下一步，写故事','idea',true)+btn('跳过引导','shelf')],
     idea:['','今天想听什么？','<label>故事想法<textarea id="idea" rows="2"></textarea></label>',btn('写故事','key',true)],
     key:[art(icon('fox-cover',48)),'连接写作服务','<div id="writing-service"></div><label>服务密钥<input id="secret" type="password" value="sample-only" readonly></label><button id="eye" aria-pressed="false">显示示例密钥</button><p>写故事将使用这项服务的额度。</p>',btn('连接并写故事','writing',true)],

@@ -113,7 +113,7 @@ try {
   assert.equal(await js("document.querySelectorAll('.book').length"),4);
   await click('[data-act=fav]');await click('[data-act=filter][data-id=fav]');
   assert.equal(await js("document.querySelectorAll('.book').length"),1);
-  await reload();await exists('.hero-art img');
+  await reload();await exists('#app:not([inert]) .hero-art img');
   assert.equal(await js("document.querySelectorAll('.book').length"),4);
   assert.equal(await js("JSON.stringify(state).includes('test-placeholder')"),false);
   await click('#profile');await js("Array.from(document.querySelectorAll('[data-act=switch-kid]')).find(b=>b.textContent.includes('新听众')).click()");
