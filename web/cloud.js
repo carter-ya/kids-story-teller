@@ -1,5 +1,5 @@
 // The static preview keeps its own local household. Worker sessions always start from the server.
-let cloud=false,cloudRevision=0,cloudFamily=null,cloudDirty=false,cloudFlight=null,cloudTimer,cloudConflict=false,cloudMedia=0;
+let cloudEmailBound=false,cloud=false,cloudRevision=0,cloudFamily=null,cloudDirty=false,cloudFlight=null,cloudTimer,cloudConflict=false,cloudMedia=0;
 let cloudEpoch=0,cloudAdult=null,cloudAccounts=[],cloudServices=[];
 let shelfWrites=Promise.resolve();
 function serializeShelfWrite(action){
@@ -25,6 +25,7 @@ async function cloudBoot(){
   return true;
 }
 async function enterCloud(session){
+  cloudEmailBound=Boolean(session.emailBound);
   clearTimeout(cloudTimer);cloudEpoch++;cloudAdult=null;cloudAccounts=[];cloudServices=[];cloudDirty=false;cloudConflict=false;childChanges.clear();
   state=firstState();signedIn=false;adult=false;cloudFamily=null;cloudMedia=0;cloudRevision=0;
   if(!session.family)return;
@@ -60,20 +61,74 @@ function listenerChange(id,patch){
   if(cloud&&signedIn&&!adult){childChanges.set(id,{...childChanges.get(id),...patch});markCloud();}
 }
 window.addEventListener('beforeunload',event=>{if(cloud&&(cloudDirty||cloudFlight)){event.preventDefault();event.returnValue='';}});
-function cloudLogin(after,unlock=false){
-  dialog(unlock?'回到家长区':'登录家庭书架',fieldSecret('pass','家庭登录码')+'<p class="hint">使用自己的登录码，或输入家长发给你的一次性邀请码。</p>',(!unlock?act('cloud-new','创建新家庭','secondary'):'')+submitBtn('打开书架'),async d=>{
-    stopPlayback();await flushCloud();const session=await api('session/login','POST',{pass:d.get('pass').trim()});
-    await enterCloud(session);accepted();resumeJobs();
-    const next=()=>after?after():resumeTour();
-    if(session.pass)showCode('你的个人登录码',session.pass,next);else next();
-  });
+function cloudLogin(after,unlock=false,invitation='',recover=false){
+  let email='',claim=invitation,id='',readyAt=0;
+  function addressStep(){
+    const heading=invitation?'加入家庭书架':recover?'绑定旧书架':unlock?'回到家长区':'邮箱登录';
+    const hint=invitation?'用自己的邮箱接受邀请，以后用这个邮箱回到家庭。':recover?'输入旧凭据和你的邮箱，故事和录音都会保留。':unlock?'请用本家庭家长的邮箱接收验证码。':'首次验证会为你创建家庭书架。';
+    const recovery=(!recover&&!invitation)?'<button type="button" class="light" data-recover>找回旧书架</button>':'';
+    dialog(heading,'<p class="hint">'+hint+'</p><label class="field">家长邮箱<input type="email" name="email" autocomplete="email" inputmode="email" maxlength="254" required value="'+html(email)+'"></label>'+
+      (recover?fieldSecret('claim','旧凭据'):''),
+      recovery+submitBtn('发送验证码'),async(data,form)=>{
+        const button=form.querySelector('[type=submit]');
+        if(button.disabled)return;
+        email=data.get('email').trim();
+        if(recover){
+          claim=data.get('claim').trim();
+          if(!/^(story|invite)-[a-f0-9]{64}$/.test(claim))throw Error('请填写完整的旧凭据。');
+        }
+        button.disabled=true;
+        try{
+          const response=await api('session/email/send','POST',{email});
+          if(!button.isConnected||!$('#dialog').open)return;
+          id=response.id;readyAt=Date.now()+60000;codeStep();
+        }finally{button.disabled=false;}
+      });
+    const recoverButton=$('#dialog [data-recover]');
+    if(recoverButton)recoverButton.onclick=()=>{email=$('#dialog [name=email]').value;recover=true;addressStep();};
+  }
+  function codeStep(){
+    dialog('查看验证码邮件','<p>验证码已发至 <strong>'+html(email)+'</strong>，10 分钟内有效。</p>'+
+      '<label class="field">六位验证码<input class="mail-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>',
+      '<button type="button" class="light" data-address>更改邮箱</button><button type="button" class="secondary" data-resend>重新发送</button>'+submitBtn('验证并继续'),async(data,form)=>{
+        const button=form.querySelector('[type=submit]');
+        if(button.disabled)return;
+        button.disabled=true;
+        try{
+          await flushCloud();
+          const session=await api('session/email/verify','POST',{id,code:data.get('code').trim(),claim});
+          stopPlayback();await enterCloud(session);accepted();resumeJobs();
+          if(after)after();else resumeTour();
+        }finally{button.disabled=false;}
+      });
+    const resend=$('#dialog [data-resend]');
+    const address=$('#dialog [data-address]');
+    address.onclick=addressStep;
+    function tick(){
+      if(!resend.isConnected||!$('#dialog').open)return;
+      const left=Math.ceil((readyAt-Date.now())/1000);
+      resend.disabled=left>0;
+      resend.textContent=left>0?'重新发送（'+left+' 秒）':'重新发送';
+      if(left>0)setTimeout(tick,1000);
+    }
+    resend.onclick=async()=>{
+      resend.disabled=true;
+      try{
+        const r=await api('session/email/send','POST',{email});
+        if(!resend.isConnected||!$('#dialog').open)return;
+        id=r.id;readyAt=Date.now()+60000;codeStep();
+      }catch(e){if(resend.isConnected){$('#dialog-error').textContent=e.message;resend.disabled=false;}}
+    };
+    tick();$('#dialog [name=code]').focus();
+  }
+  addressStep();
 }
-on('cloud-new',async(_,b)=>{
-  b.disabled=true;
-  try{const s=await api('session/create','POST',{});await enterCloud(s);
-    dialog('请保存家庭登录码','<p>保存在密码管理器中。持有码的人可管理这个家庭和调用已连接的服务。</p><textarea readonly aria-label="家庭登录码">'+html(s.pass)+'</textarea>',submitBtn('已保存，开始引导'),()=>{accepted();resumeTour()},resumeTour);
-  }catch(e){$('#dialog-error').textContent=e.message;b.disabled=false;}
-});
+function openEmailInvitation(){
+  const match=location.hash.match(/^#join\/(invite-[a-f0-9]{64})$/);
+  if(!cloud||!match)return false;
+  history.replaceState(null,'',location.pathname+location.search+(signedIn?'#shelf':'#welcome'));
+  cloudLogin(undefined,false,match[1]);return true;
+}
 async function changeCloudRole(kid){
   stopPlayback();await flushCloud();const s=await api('session/child','POST',{kid});
   await enterCloud(s);accepted();go('shelf');
@@ -83,22 +138,19 @@ async function cloudLogout(){
 }
 const providerName=p=>p==='deepseek'?'DeepSeek':'OpenAI';
 const defaultModel=p=>p==='deepseek'?'deepseek-flash':'gpt-4.1-mini';
-function showCode(title,code,next=render){
-  dialog(title,'<p>请保存在密码管理器中。</p><textarea readonly aria-label="登录码">'+html(code)+'</textarea>',submitBtn('已保存'),()=>{accepted();next()},next);
-}
 async function refreshServices(){
   cloudServices=(await api('configs')).map(c=>({...c,name:providerName(c.provider)+' · '+typeName(c.type),managed:true,preferred:state.configDefaults?.[cloudAdult+':'+c.type]===c.id}));
 }
 async function refreshAccounts(){cloudAccounts=(await api('library')).accounts;}
-on('invite-adult',()=>dialog('邀请成人',input('name','照护者昵称','',24)+'<p>邀请码一天内有效，仅可使用一次。请私下交给对方。</p>',submitBtn('生成邀请码'),async d=>{
+on('link-email',()=>cloudLogin(render,false,'',true));
+on('invite-adult',()=>dialog('邀请成人',input('name','照护者昵称','',24)+'<p>对方可通过链接用自己的邮箱加入。链接一天内有效。</p>',submitBtn('生成邀请链接'),async d=>{
   await flushCloud();const r=await api('accounts','POST',{name:d.get('name')});
-  await refreshAccounts();showCode('请私下分享一次性邀请码',r.code);
+  await refreshAccounts();
+  const url=new URL(location.pathname,location.origin);url.hash='join/'+r.code;
+  dialog('分享给受邀家长','<p>将此链接私下发给对方，仅可使用一次。</p><textarea readonly aria-label="家庭邀请链接">'+html(url.href)+'</textarea>',submitBtn('完成'),()=>{accepted();render();},render);
 }));
-on('revoke-adult',id=>confirmAction('撤销这位成人的访问？','该成人的登录码、已登录设备和个人服务配置会失效。','撤销',async()=>{
+on('revoke-adult',id=>confirmAction('撤销这位成人的访问？','该成人将退出家庭，个人服务配置也会被清除。','撤销',async()=>{
   await api('accounts/'+id,'DELETE');await refreshAccounts();await refreshServices();render();
-}));
-on('rotate-owner',()=>confirmAction('更换管理员登录码？','旧码和其他管理员设备将立即失效，请保存新码。','更换',async()=>{
-  const r=await api('session/rotate','POST',{});showCode('新的管理员登录码',r.pass);
 }));
 function cloudConfig(type,c,after){
   const p=c?.provider||'openai';
