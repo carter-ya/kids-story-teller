@@ -19,7 +19,7 @@ Workers 提供同源 API，D1 保存家庭、会话、任务和加密后的凭�
 
 ## 部署到 Cloudflare
 
-在目标账户创建 D1 数据库 `story-families`、R2 存储桶 `story-family-files` 和队列 `story-narration`，在自己的部署配置中填写 D1 的 `database_id`。使用 `npx wrangler secret put VAULT_KEY` 设置单独生成的 64 位十六进制密钥。用同一部署配置分别执行 `npx wrangler secret put RESEND_API_KEY` 和 `npx wrangler secret put RESEND_FROM`，按提示填写发送密钥和已验证域名的发件地址。运行 `npx wrangler d1 migrations apply DB --remote`（包括 `0006_email_login.sql`）后执行 `npx wrangler deploy`。以 HTTPS 访问站点，保持 R2 私有。仓库配置不含真实邮箱、账号标识或服务商密钥。
+在目标账户创建 D1 数据库 `story-families`、R2 存储桶 `story-family-files` 和队列 `story-narration`，在自己的部署配置中填写 D1 的 `database_id`。使用 `npx wrangler secret put VAULT_KEY` 设置单独生成的 64 位十六进制密钥。用同一部署配置分别执行 `npx wrangler secret put RESEND_API_KEY` 和 `npx wrangler secret put RESEND_FROM`，按提示填写发送密钥和已验证域名的发件地址。运行 `npx wrangler d1 migrations apply DB --remote`（包括 `0006_email_login.sql`）后执行 `npx wrangler deploy --keep-vars`，保留控制台中配置的发件地址。以 HTTPS 访问站点，保持 R2 私有。仓库配置不含真实邮箱、账号标识或服务商密钥。
 
 平台开销取决于账号总用量，100 MB 是单个家庭的应用额度。Queues 和 R2 各有免费用量，写作和配音由家长的服务商账户独立计费。[Queues 价格](https://developers.cloudflare.com/queues/platform/pricing/) · [R2 价格](https://developers.cloudflare.com/r2/pricing/)
 
