@@ -55,13 +55,13 @@ function library(){
   return stories.length?stories.map(s=>`<div class="list-row"><img class="thumb" src="${cover(s.cover)}" alt=""><div class="grow"><h3>${html(s.title)}</h3><small>${state.jobs[s.id]?jobLabel(state.jobs[s.id]):s.archived?'已归档':s.published?'已发布':'草稿'}${s.series?' · '+html(s.series):''}</small></div>${act('edit','打开','secondary',s.id)}</div>`).join(''):empty('这里还没有故事','写下一句话，或者导入已有的故事。');
 }
 function studio(){
-  return `<div class="wrap section-page">${coach(2)}${title('写故事','给孩子留下一封会说话的信。')}<div class="card"><div class="row between"><h2>${importMode?'导入故事':'今晚想讲什么？'}</h2>${act('mode',importMode?'从一个想法开始':'导入已有故事','light')}</div>
+  return `<div class="wrap section-page writing-desk">${coach(2)}${title('写故事','记下一个点子，或把写好的稿子带来。')}<div class="desk-spread"><section class="card manuscript"><div class="row between"><h2>${importMode?'导入故事':'今晚想讲什么？'}</h2>${act('mode',importMode?'从一个想法开始':'导入已有故事','light')}</div>
   <form id="new-story">${importMode?input('title','故事标题',!cloud&&sessionStorage.getItem('import-title')||'')+area('body','粘贴正文',!cloud&&sessionStorage.getItem('import-body')||''):area('idea','故事想法',!cloud&&sessionStorage.getItem('story-idea')||'',3)}
   ${!importMode?'<div class="row">'+['小狐狸第一次露营','一只在雨天送信的蜗牛'].map(t=>act('prompt',t,'light',t)).join('')+'</div>':''}
-  <div class="actions">${submitBtn(importMode?'保存并审稿':'写故事')}</div></form></div>
-  <div class="head"><h2>家庭内容库</h2></div><div class="tabs">${[['all','全部'],['draft','草稿'],['published','已发布'],['archive','已归档']].map(([v,t])=>act('studio-filter',t,'tab '+(studioTab===v?'on':''),v)).join('')}</div>
+  <div class="actions">${submitBtn(importMode?'保存并审稿':'写故事')}</div></form></section>
+  <section class="manuscript-shelf"><div class="head"><h2>我的稿架</h2></div><div class="tabs">${[['all','全部'],['draft','草稿'],['published','已发布'],['archive','已归档']].map(([v,t])=>act('studio-filter',t,'tab '+(studioTab===v?'on':''),v)).join('')}</div>
   <details><summary>查找作品</summary><form id="library-search">${input('query','标题、主题或系列',libraryQuery)}${pick('childfilter','发布给',[['all','全部听众'],...children().map(k=>[k.id,k.name])],libraryChild)}${submitBtn('查找')}</form></details>
-  <div class="card">${library()}</div></div>`;
+  <div class="draft-list">${library()}</div></section></div></div>`;
 }
 forms.set('library-search',d=>{libraryQuery=d.get('query').trim();libraryChild=d.get('childfilter');render()});
 forms.set('new-story',data=>{
@@ -77,15 +77,15 @@ forms.set('new-story',data=>{
   if(importMode)create();else withService('write',create);
 });
 function editor(){
-  const s=story(routeId);if(!s)return '<div class="wrap">'+empty('找不到这篇作品','回到内容库看看。',act('create','家庭内容库'))+'</div>';
+  const s=story(routeId);if(!s)return '<div class="wrap">'+empty('找不到这篇作品','回稿架挑另一篇。',act('create','我的稿架'))+'</div>';
   const job=state.jobs[s.id];
-  if(job)return `<div class="wrap section-page"><div class="card wait" role="status"><span class="bob" aria-hidden="true">${icon('fox',50)}${icon(job.type==='write'?'pen':'headphones',28)}</span><h2>${jobLabel(job)}</h2><p>当前稿件已保存，可以稍后回来。</p><div class="bone"></div>${act('create','回内容库')}</div></div>`;
-  return `<div class="wrap section-page">${state.tourV2?.story===s.id?coach(3)+coach(4):''}${act('create','家庭内容库','light')}<div class="head"><h1 style="font-size:2.2rem">故事工作台</h1><span class="pill">${s.archived?'已归档':s.published?'已发布 · 可继续改稿':'草稿'}</span></div>
+  if(job)return `<div class="wrap section-page"><div class="card wait" role="status"><span class="bob" aria-hidden="true">${icon('fox',50)}${icon(job.type==='write'?'pen':'headphones',28)}</span><h2>${jobLabel(job)}</h2><p>当前稿件已保存，可以稍后回来。</p><div class="bone"></div>${act('create','回稿架')}</div></div>`;
+  return `<div class="wrap section-page editing-desk">${state.tourV2?.story===s.id?coach(3)+coach(4):''}${act('create','我的稿架','light')}<div class="head"><h1 style="font-size:2.2rem">改稿与录音</h1><span class="pill">${s.archived?'已归档':s.published?'已发布 · 可继续改稿':'草稿'}</span></div>
   <div class="card"><form id="edit-form">${input('title','标题',s.title)}${area('text','故事正文',s.text,8)}
   <small id="save-state">${cloud?'草稿自动同步到家庭书架':'草稿自动保存于当前浏览器'}</small><details><summary>封面、系列与版本</summary>${pick('cover','封面主题',s.cover?.startsWith('cover-')?[...covers,[s.cover,'我的图片','flower']]:covers,s.cover)}${cloud?'<label>上传自己的封面<input type="file" accept="image/png,image/jpeg,image/webp" id="cover-upload"></label>':''}${input('series','系列',s.series)}
   <div class="check-list">${s.versions.map((v,i)=>act('restore','恢复「'+html(v.title)+'」 · '+new Date(v.at).toLocaleTimeString(),'secondary',String(i))).join('')||'保存版本后可在这里恢复。'}</div></details>
   <div class="actions">${submitBtn('保存版本')}${act('rewrite','改写一段','secondary')}${!s.text?act('regen','生成草稿','secondary'):''}</div></form></div>
-  <div class="card"><h2>给故事配音</h2><p class="hint">${cloud?'录音由 AI 合成。先试听一小句，满意后再生成整篇。':'本地体验使用设备中文朗读。'}</p>
+  <div class="card"><h2>给故事配音</h2><p class="hint">${cloud?'用选好的声音先试读一句，听好后再合成整篇。':'本地体验使用设备中文朗读。'}</p>
   ${pick('voice','声音',voices,state.prefs[state.kid]?.voice||voices[0][0])}<div class="actions">${act('short-preview','试听一句')}${act('record','生成朗读','primary')}</div>
   ${cloud&&s.failedVoice&&s.failedVoice.actor===cloudAdult?'<p>上次已保存 '+Number(s.failedVoice.completed||0)+' 段。</p>'+act('retry-voice','继续生成剩余片段'):''}
   ${s.recordings.map(r=>`<div class="list-row"><div class="grow"><strong>${html(r.title)}</strong><div class="meta">${html(r.voice)} · 约 ${time(r.duration)}${s.published?.rid===r.id?' · 已发布':''}</div></div>${act('audition','试听','secondary',r.id)}${act('publish','放进书架','primary',r.id)}${r.cloud?'<a class="secondary" download="story.wav" href="/api/audio/'+encodeURIComponent(r.id)+'">下载音频</a>':''}${act('drop-record','删除录音','light',r.id)}</div>`).join('')}</div>

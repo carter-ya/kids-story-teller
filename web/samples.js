@@ -12,7 +12,7 @@ const SAMPLES = [
 
 它坐在石头上，轻轻念了一遍。青蛙闭上眼睛，小鱼钻进荷叶底下。天上的月亮弯了弯嘴角，把最后一束银光，盖在小邮差软软的尾巴上。`,
     audio: "assets/fox.m4a",
-    cover: "assets/fox.webp",
+    cover: "assets/fox-print.webp",
     duration: 47.056
   },
   {
@@ -27,7 +27,7 @@ const SAMPLES = [
 
 它把板凳让给了花盆，自己钻进被窝。窗台上的小绿叶和天上的小星星，隔着玻璃，一闪一闪地说着悄悄话。`,
     audio: "assets/rabbit.m4a",
-    cover: "assets/rabbit.webp",
+    cover: "assets/rabbit-print.webp",
     duration: 48.690
   },
   {
@@ -42,7 +42,7 @@ const SAMPLES = [
 
 黄昏时，小熊把纸船托回窗台。船底已经软了，小熊却很开心。它在蓝色舷窗旁边，轻轻画上了今天的第一位乘客。`,
     audio: "assets/bear.m4a",
-    cover: "assets/bear.webp",
+    cover: "assets/bear-print.webp",
     duration: 49.259
   }
 ];

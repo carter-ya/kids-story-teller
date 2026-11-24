@@ -63,15 +63,25 @@ function openPlayer(id,auto){
 function updateMini(){
   const mini=$('#mini');
   mini.hidden=!now||page==='player'||now.preview;
-  if(mini.hidden){delete mini.dataset.view;return;}
-  const view=JSON.stringify([now.id,now.title,isPlaying]);if(mini.dataset.view===view)return;
-  mini.dataset.view=view;mini.innerHTML=act('reopen',html(now.title),'')+act('toggle',icon(isPlaying?'pause':'play',18)+(isPlaying?'暂停':'播放'),'light')+'<button class="icon" data-act="stop" aria-label="停止播放">'+icon('close')+'</button>';
+  if(mini.hidden){mini.replaceChildren();delete mini.dataset.view;return;}
+  const view=JSON.stringify([now.id,now.recording,now.title,now.cover]);
+  if(mini.dataset.view!==view){
+    mini.dataset.view=view;
+    mini.innerHTML='<button type="button" class="mini-story" data-act="reopen" aria-label="打开播放器：'+html(now.title)+'"><img src="'+html(now.cover)+'" alt=""><span><strong>'+html(now.title)+'</strong><small class="mini-clock"></small></span></button>'+
+      '<button type="button" class="mini-play" data-act="toggle"><span class="show-play">'+icon('play',20)+'</span><span class="show-pause">'+icon('pause',20)+'</span></button>'+
+      '<button type="button" class="mini-close" data-act="stop" aria-label="停止并关闭播放器">'+icon('close',18)+'</button>';
+  }
+  const toggle=mini.querySelector('.mini-play');
+  toggle.dataset.playing=String(isPlaying);
+  toggle.setAttribute('aria-label',isPlaying?'暂停':'播放');
+  mini.querySelector('.mini-clock').textContent=time(position())+' / '+time(now.duration);
+  mini.style.setProperty('--played',Math.min(100,100*position()/(now.duration||1))+'%');
 }
 function syncPlayer(){
   if(page==='player' && now){
     const range=$('#seek');if(range){range.max=now.duration;range.value=position();}
     if($('#buffering'))$('#buffering').hidden=!now.audio||audio.readyState>=3||audio.error;
-    if($('#clock'))$('#clock').textContent=time(position())+' / '+time(now.duration);
+    if($('#clock')){$('#elapsed').textContent=time(position());$('#duration').textContent=time(now.duration);}
     const button=$('#play-button');
     if(button){button.setAttribute('aria-label',isPlaying?'暂停':'播放');button.dataset.playing=String(isPlaying);}
     const knob=$('#seek');if(knob)knob.style.setProperty('--played',(100*(position()/(now.duration||1)))+'%');
@@ -84,22 +94,22 @@ function playerPage(){
   loadItem(item,!signedIn);
   const bedtime=sleepUntil?'定时已开启':'睡眠定时';
   return `<div class="wrap listening-room"><div class="room-nav">${act('back-shelf',icon('chevron-left',18)+(signedIn?'我的书架':'返回首页'),'room-back')}
-    <span>${icon('moon',19)} 晚安放映室</span></div>
+    <span>${icon('moon',19)} 听故事</span></div>
     <section class="storybook-player" aria-label="绘本故事播放器">
       <div class="player-stage"><span class="stage-star star-one" aria-hidden="true">${icon('sparkle',45)}</span><span class="stage-star star-two" aria-hidden="true">${icon('sparkle',24)}</span>
-        <figure class="story-window"><img src="${item.cover}" alt="${html(item.title)}的故事插画"><figcaption>${icon('envelope',18)} 晚安邮局</figcaption></figure><span class="stage-moon" aria-hidden="true">${icon('moon',48)}</span>
+        <figure class="story-window"><div class="record-sleeve"><img src="${item.cover}" alt="${html(item.title)}的故事插画"></div><figcaption>${icon('music',18)} ${html(item.theme)}</figcaption></figure><span class="stage-moon" aria-hidden="true">${icon('moon',48)}</span>
       </div>
-      <div class="radio-face"><div class="fox-tab" aria-hidden="true">${icon('fox',56)}</div><p class="radio-series">${icon('headphones',18)} ${html(item.theme)}</p>
-        <h1>${html(item.title)}</h1><p class="radio-source">${item.recording&&item.audio?'AI 合成朗读':item.audio?'普通话故事录音':'设备中文朗读'}</p>
-        <div class="sound-track"><label class="sr-only" for="seek">播放进度</label><input id="seek" type="range" min="0" max="${now.duration}" step=".1" value="${position()}"><div id="clock" class="meta"></div></div>
+      <div class="radio-face"><p class="radio-series">${icon('headphones',19)} ${item.recording&&item.audio?'AI 合成朗读':item.audio?'普通话故事录音':'设备中文朗读'}</p>
+        <h1>${html(item.title)}</h1>
+        <div class="sound-track"><label class="sr-only" for="seek">播放进度</label><input id="seek" type="range" min="0" max="${now.duration}" step=".1" value="${position()}"><div id="clock" class="meta"><span id="elapsed"></span><span id="duration"></span></div></div>
         <div class="transport"><button data-act="rewind" aria-label="后退 10 秒">${icon('skip-back',26)}<small>10 秒</small></button>
         <button id="play-button" class="play-disc" data-act="toggle" aria-label="播放"><span class="show-play">${icon('play',32)}</span><span class="show-pause">${icon('pause',32)}</span></button>
         <button data-act="forward" aria-label="前进 10 秒">${icon('skip-forward',26)}<small>10 秒</small></button></div>
         <div class="radio-tools">${act(signedIn?'fav':'login',icon(signedIn&&liked(item.id)?'heart-fill':'heart',20)+(signedIn&&liked(item.id)?'已收藏':'收藏'),'radio-tool',item.id)}${act('timer',icon('timer',20)+bedtime,'radio-tool')}</div>
-        <p id="buffering" class="hint" role="status" hidden>${icon('paw',16)} 正在取回录音…</p>
+        <p id="buffering" class="hint" role="status" hidden>${icon('paw',16)} 录音载入中…</p>
       </div></section>
-      <details class="transcript"><summary>${icon('book',22)} 读故事正文</summary><p class="quote">${html(item.text)}</p>${item.audio?'<a class="secondary" href="'+item.audio+'" download>保存这段录音</a>':''}</details>
-      ${!signedIn?'<div class="listen-invite"><p>也给孩子写一篇自己的故事。</p>'+act('login','开启家庭书架','primary')+'</div>':''}
+      <details class="transcript"><summary>${icon('book',22)} 看故事原文</summary><p class="quote">${html(item.text)}</p>${item.audio?'<a class="secondary" href="'+item.audio+'" download>保存这段录音</a>':''}</details>
+      ${!signedIn?'<div class="listen-invite"><p>想给孩子写一篇？</p>'+act('login','写自己的故事','secondary')+'</div>':''}
   </div>`;
 }
 pages.set('player',playerPage);

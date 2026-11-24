@@ -67,7 +67,7 @@ function cloudLogin(after,unlock=false,invitation='',recover=false){
     const heading=invitation?'加入家庭书架':recover?'绑定旧书架':unlock?'回到家长区':'邮箱登录';
     const hint=invitation?'用自己的邮箱接受邀请，以后用这个邮箱回到家庭。':recover?'输入旧凭据和你的邮箱，故事和录音都会保留。':unlock?'请用本家庭家长的邮箱接收验证码。':'首次验证会为你创建家庭书架。';
     const recovery=(!recover&&!invitation)?'<button type="button" class="light" data-recover>找回旧书架</button>':'';
-    dialog(heading,'<p class="hint">'+hint+'</p><label class="field">家长邮箱<input type="email" name="email" autocomplete="email" inputmode="email" maxlength="254" required value="'+html(email)+'"></label>'+
+    dialog(heading,'<div class="mail-note"><span aria-hidden="true">'+icon('envelope',32)+'</span><p>'+hint+'</p></div>'+'<label class="field">家长邮箱<input type="email" name="email" autocomplete="email" inputmode="email" maxlength="254" required value="'+html(email)+'"></label>'+
       (recover?fieldSecret('claim','旧凭据'):''),
       recovery+submitBtn('发送验证码'),async(data,form)=>{
         const button=form.querySelector('[type=submit]');
@@ -88,7 +88,7 @@ function cloudLogin(after,unlock=false,invitation='',recover=false){
     if(recoverButton)recoverButton.onclick=()=>{email=$('#dialog [name=email]').value;recover=true;addressStep();};
   }
   function codeStep(){
-    dialog('查看验证码邮件','<p>验证码已发至 <strong>'+html(email)+'</strong>，10 分钟内有效。</p>'+
+    dialog('查收验证码','<div class="mail-note"><span aria-hidden="true">'+icon('mail',32)+'</span><p>已寄到 <strong>'+html(email)+'</strong>，10 分钟内有效。</p></div>'+
       '<label class="field">六位验证码<input class="mail-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>',
       '<button type="button" class="light" data-address>更改邮箱</button><button type="button" class="secondary" data-resend>重新发送</button>'+submitBtn('验证并继续'),async(data,form)=>{
         const button=form.querySelector('[type=submit]');

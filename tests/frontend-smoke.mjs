@@ -2,7 +2,7 @@
 import {verifyHomeLayout} from './home-layout.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -41,17 +41,27 @@ try {
   const exists=selector=>until(()=>js('!!document.querySelector('+JSON.stringify(selector)+')'),selector);
   async function click(selector){await exists(selector);await js('document.querySelector('+JSON.stringify(selector)+').click()');}
   async function fill(selector,value){await exists(selector);await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}))})()`);}
+  async function captureDesign(name){
+    if(!process.env.STORY_DESIGN_SHOTS)return;
+    await send('Page.enable');
+    const shot=await send('Page.captureScreenshot',{format:'jpeg',quality:80});
+    await writeFile(join(process.env.STORY_DESIGN_SHOTS,name+'.jpg'),Buffer.from(shot.data,'base64'));
+  }
   await send('Runtime.enable');
   if(process.argv.includes('--home-layout')){
     await verifyHomeLayout({send,js,until,site,output:process.env.STORY_SCREENSHOTS});
     assert.deepEqual(errors,[]);
   }else{
+  if(process.env.STORY_DESIGN_SHOTS)await send('Emulation.setDeviceMetricsOverride',{width:1280,height:880,deviceScaleFactor:1,mobile:false});
   await send('Page.navigate',{url:site});
   await exists('#app:not([inert]) .mail-hero');
   assert.equal(await js("document.querySelector('.mast nav').hidden"),true);
+  await click('[data-act=browse-samples]');
+  await until(()=>js("document.querySelector('.sample-shelf').getBoundingClientRect().top<innerHeight/2"),'sample navigation');
   await click('[data-act=guest-listen]');
   await until(()=>js('document.querySelector("audio").currentTime>0'),'guest sample playback');
   await exists('#play-button[data-playing=true] .show-pause svg');
+  await captureDesign('player');
   assert.equal(await js("Object.keys(state.progress).length"),0);
   await click('[data-act=back-shelf]');await exists('.welcome');
   if(process.argv.includes('--cloud')){
@@ -110,6 +120,24 @@ try {
   await click('[data-nav=family]');await click('[data-act=member]');
   await fill('#dialog [name=name]','新听众');await click('#dialog-actions [type=submit]');
   await click('[data-act=lock]');await exists('.hero-art img');
+  await click('.cover[data-id=fox]');
+  await until(()=>js("document.querySelector('audio').currentTime>0"),'sample playback');
+  await click('[data-act=back-shelf]');await exists('#mini:not([hidden]) .mini-story');
+  await click('#mini [data-act=toggle]');
+  await until(()=>js("document.querySelector('#mini .mini-play').dataset.playing==='false'"),'paused dock');
+  assert.equal(await js("document.querySelector('#mini .mini-story strong').textContent"),'月亮邮差');
+  assert.match(await js("document.querySelector('#mini .mini-clock').textContent"),/\d+:\d{2} \/ \d+:\d{2}/);
+  if(process.env.STORY_DESIGN_SHOTS)await until(()=>js("!document.querySelector('#notice').textContent"),'cleared notification');
+  await captureDesign('mini');
+  await send('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:false});
+  assert.ok(await js("(()=>{const r=document.querySelector('#mini').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()"));
+  await captureDesign('mini-mobile');
+  await click('#mini [data-act=reopen]');await exists('#play-button[data-playing=false]');
+  assert.equal(await js("document.querySelector('#mini').hidden"),true);
+  assert.ok(await js("document.documentElement.scrollWidth<=innerWidth"));
+  await captureDesign('player-mobile');
+  await click('[data-act=back-shelf]');await exists('#mini:not([hidden]) .mini-close');
+  await click('#mini [data-act=stop]');await until(()=>js("document.querySelector('#mini').hidden"),'closed dock');
   assert.equal(await js("document.querySelectorAll('.book').length"),4);
   await click('[data-act=fav]');await click('[data-act=filter][data-id=fav]');
   assert.equal(await js("document.querySelectorAll('.book').length"),1);

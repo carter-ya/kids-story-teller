@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>晚安邮局 · 语音合成技术设计</title><link rel="icon" href="../assets/postmark.svg"><link rel="stylesheet" href="../style.css">
-<style>main{margin:auto;max-width:58rem;padding:24px 5% 60px}h1{font-size:2.2rem}h2{margin:2rem 0 1rem}p,li,blockquote{margin:.8rem 0}table{border-collapse:collapse;width:100%}th,td{border:1px solid var(--line);padding:8px;text-align:left;vertical-align:top}a{color:var(--green);text-decoration:underline}code,td{overflow-wrap:anywhere}blockquote{border-left:4px solid var(--honey);padding-left:15px}nav{margin-bottom:24px;flex-wrap:wrap}</style>
-<main><nav><a href="../">晚安邮局</a> · <a href="voice-product.html">声音产品设计</a> · <a href="voice-architecture.html">语音合成技术</a></nav><h1>晚安邮局 · 语音合成技术设计</h1>
+<link rel="stylesheet" href="reading.css">
+<main><nav class="guide-nav" aria-label="声音文档导航"><a class="brand" href="../"><img class="brand-mark" src="../assets/postmark.svg" alt="">晚安邮局</a><a href="voice-product.html">声音产品设计</a><a href="voice-architecture.html">语音合成技术</a></nav><h1>晚安邮局 · 语音合成技术设计</h1>
 <p><strong>目标</strong>是将家长确认过的稿件生成可回听、可替换、可授权的固定录音。生产路径在 Workers 上运行。静态体验继续保留设备朗读。下文的分段返工、响度母带和多编码属于后续设计。</p>
 <h2>已接入的服务</h2>
 <p>Worker 从家庭密钥库取出凭据，分别连接两家官方 WebSocket。OpenAI 使用 <code>gpt-realtime-2.1-mini</code>，等待会话配置成功后分段请求朗读，并检查响应完整结束。DeepSeek 使用 <code>/v1/tools/tts</code> 的 PCM 格式，收到成功结束事件才接受录音。两者输出均以 24 kHz、16 位、单声道 WAV 保存到私有 R2。详见 <a href="https://developers.openai.com/api/docs/guides/text-to-speech">OpenAI 迁移说明</a> 和 <a href="https://api-docs.deepseek.com/zh-cn/guides/tts/">DeepSeek 语音合成</a>。</p>

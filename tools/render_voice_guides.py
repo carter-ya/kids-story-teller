@@ -16,7 +16,7 @@ for name in ('voice-product', 'voice-architecture'):
     document = f'''<!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title><link rel="icon" href="../assets/postmark.svg"><link rel="stylesheet" href="../style.css">
-<style>main{{margin:auto;max-width:58rem;padding:24px 5% 60px}}h1{{font-size:2.2rem}}h2{{margin:2rem 0 1rem}}p,li,blockquote{{margin:.8rem 0}}table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid var(--line);padding:8px;text-align:left;vertical-align:top}}a{{color:var(--green);text-decoration:underline}}code,td{{overflow-wrap:anywhere}}blockquote{{border-left:4px solid var(--honey);padding-left:15px}}nav{{margin-bottom:24px;flex-wrap:wrap}}</style>
-<main><nav><a href="../">晚安邮局</a> · <a href="voice-product.html">声音产品设计</a> · <a href="voice-architecture.html">语音合成技术</a></nav>{body}</main></html>
+<link rel="stylesheet" href="reading.css">
+<main><nav class="guide-nav" aria-label="声音文档导航"><a class="brand" href="../"><img class="brand-mark" src="../assets/postmark.svg" alt="">晚安邮局</a><a href="voice-product.html">声音产品设计</a><a href="voice-architecture.html">语音合成技术</a></nav>{body}</main></html>
 '''
     (ROOT / 'web' / 'guides' / (name + '.html')).write_text(document)
