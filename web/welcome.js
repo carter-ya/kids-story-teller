@@ -28,8 +28,7 @@ pages.set('welcome',welcome);
 
 function login() {
   if(cloud)return cloudLogin();
-  dialog('登录家庭书架','<p class="hint">前端评审使用本机的家庭体验账号，登录后可继续这个浏览器里的作品。</p>'+fieldSecret('login','体验口令')+'<p class="hint">体验口令：<strong>1234</strong></p>',submitBtn('登录并继续'),data=>{
-    if(data.get('login')!=='1234')throw Error('请输入体验口令 1234。');
+  dialog('本地预览','<p>当前为静态预览，作品仅保存在这个浏览器。使用云端站点即可通过邮箱登录。</p>',submitBtn('打开本地预览'),()=>{
     accepted();stopPlayback();signedIn=true;adult=true;
     sessionStorage.setItem('post-office-login','yes');sessionStorage.setItem('post-office-adult','yes');
     if(!state.tourV2)state.tourV2={step:1};

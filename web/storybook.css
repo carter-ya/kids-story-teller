@@ -44,3 +44,5 @@ body.night{background:#e3eadd}.night .mast{background:#f6f7ec}.listening-room{ma
 @media(prefers-reduced-motion:reduce) {
   #app[aria-busy="true"] { --home-mask:none }
 }
+
+.mail-code { font-variant-numeric:tabular-nums; letter-spacing:.32em; font-size:1.3rem }

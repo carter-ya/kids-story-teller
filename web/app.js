@@ -67,8 +67,7 @@ function gate(fn){
   if(adult){fn();return;}
   if(cloud){cloudLogin(fn,true);return;}
   pendingGate=fn;
-  dialog('进入家长区','<p>评审用家长口令为 <strong>1234</strong>。</p>'+fieldSecret('pin','家长口令'),submitBtn('解锁'),data=>{
-    if(data.get('pin')!=='1234')throw Error('口令不对，再试一次。');
+  dialog('本地预览','<p>继续查看这台设备上的家长界面。</p>',submitBtn('继续预览'),()=>{
     const next=pendingGate;accepted();adult=true;sessionStorage.setItem('post-office-adult','yes');pendingGate=null;next();
   },()=>{pendingGate=null;if(['create','family','edit','services'].includes(page))go('shelf')});
 }
@@ -167,7 +166,7 @@ document.addEventListener('focusin',e=>{const f=e.target.closest('.secret');if(f
 document.addEventListener('focusout',e=>{const f=e.target.closest('.secret');if(f&&!f.contains(e.relatedTarget)){f.querySelector('input').type='password';f.querySelector('.mascot').innerHTML=icon('fox',38);const b=f.querySelector('[data-eye]');b.innerHTML=icon('eye-off');b.setAttribute('aria-pressed','false');b.setAttribute('aria-label','显示内容');}});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;try{if(f.id==='dialog-form'){await modalSubmit?.(new FormData(f),f)}else await forms.get(f.id)?.(new FormData(f),f)}catch(err){if($('#dialog').open)$('#dialog-error').textContent=err.message;else notify(err.message);}});
 $('#dialog').addEventListener('cancel',e=>{e.preventDefault();closeDialog()});
-window.addEventListener('hashchange',()=>{if(!$('.mast').inert)navigate();});
+window.addEventListener('hashchange',()=>{if(!$('.mast').inert){navigate();openEmailInvitation();}});
 function showHomeLoading(member){
   if(!$('#app').hasAttribute('inert'))return;
   frontHeader(!member);
@@ -187,7 +186,7 @@ window.addEventListener('DOMContentLoaded',async()=>{
     showHomeLoading(expectShelf);
     if(!await cloudBoot()){showHomeLoading(signedIn);await load();}
     document.querySelectorAll('[data-symbol]').forEach(el=>el.innerHTML=icon(el.dataset.symbol));
-    resumeJobs();navigate();finishHomeLoading();
+    resumeJobs();navigate();finishHomeLoading();openEmailInvitation();
   }catch(e){
     const app=$('#app');
     const message=document.createElement('p');
