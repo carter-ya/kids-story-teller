@@ -1,29 +1,29 @@
 // One local review household. The signed-in session and the family PIN are separate.
 let signedIn = sessionStorage.getItem('post-office-login') === 'yes';
-function frontHeader() {
-  const guest = !signedIn;
+function frontHeader(guest = !signedIn) {
   $('.brand').href = guest ? '#welcome' : '#shelf';
   $('.mast nav').hidden = guest;
   $('#profile').hidden = guest;
   $('#sign-in').hidden = !guest;
 }
-function welcome() {
-  return `<div class="wrap welcome">
-    <section class="mail-hero">
-      <div class="mail-copy"><div class="letterhead">${icon('envelope')} 家庭有声故事书架</div>
-        <h1>把晚安，<br><em>讲成故事。</em></h1>
-        <p>从孩子今天的一个小念头开始。你来写、你来挑声音，把讲好的故事放进专属书架，明晚还能接着听。</p>
-        <div class="actions">${act('login','开启家庭书架','primary')}${act('guest-listen',icon('play',18)+' 先听一篇','secondary','fox')}</div>
-      </div>
-      <figure class="postcard"><img src="assets/fox.webp" alt="小狐狸背着邮包，走在月光下的森林里"><figcaption><span>${icon('moon',19)} 月亮邮差</span><span class="postmark">${icon('mail',24)} 晚安邮局</span></figcaption></figure>
-    </section>
-    <section class="sample-shelf"><div class="head"><div><h2>先听听，今晚的故事</h2><p class="hint">三封可以直接打开的声音来信。</p></div></div><div class="grid">
-      ${SAMPLES.map(s=>`<article class="book"><button class="cover" data-act="guest-listen" data-id="${s.id}" aria-label="试听${html(s.title)}"><img src="${s.cover}" alt=""><span class="listen-dot">${icon('play',20)}</span></button><div class="book-info"><div><button class="book-title titleface" data-act="guest-listen" data-id="${s.id}">${html(s.title)}</button><p class="meta">${html(s.theme)} · ${time(s.duration)}</p></div></div></article>`).join('')}
-    </div></section>
-    <section class="visitor-steps"><h2>从一个念头，到枕边的声音</h2><div class="grid">
-      ${[['pen','写下奇思妙想','说一句想法，或带来自己写的故事。'],['headphones','听过，再放进书架','家长读稿、修改，试听满意后发布。'],['shelf','让孩子自己挑','点熟悉的封面就能听，喜欢的故事可以收藏。']].map(([sym,h,p])=>`<div>${icon(sym,34)}<h3>${h}</h3><p>${p}</p></div>`).join('')}
-    </div></section></div>`;
+// The public landing page is already laid out in index.html at first paint.
+const welcomeLayout = $('#app .welcome')||$('#guest-cache').content.firstElementChild;
+for(const holder of welcomeLayout.querySelectorAll('[data-home-icon]')){
+  holder.innerHTML=icon(holder.dataset.homeIcon,Number(holder.dataset.size));
 }
+const sampleGrid=welcomeLayout.querySelector('.sample-shelf .grid');
+const sampleCard=sampleGrid.firstElementChild;
+sampleGrid.replaceChildren(...SAMPLES.map(sample=>{
+  const card=sampleCard.cloneNode(true);
+  const cover=card.querySelector('.cover');
+  cover.setAttribute('aria-label','试听'+sample.title);
+  cover.querySelector('img').src=sample.cover;
+  for(const button of card.querySelectorAll('[data-act]'))button.dataset.id=sample.id;
+  card.querySelector('.book-title .home-ink').textContent=sample.title;
+  card.querySelector('.meta .home-ink').textContent=sample.theme+' · '+time(sample.duration);
+  return card;
+}));
+function welcome(){return welcomeLayout.outerHTML;}
 pages.set('welcome',welcome);
 
 function login() {

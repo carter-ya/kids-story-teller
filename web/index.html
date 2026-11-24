@@ -8,8 +8,72 @@
 <script defer src="icons.js"></script><script defer src="samples.js"></script><script defer src="picker.js"></script><script defer src="app.js"></script><script defer src="narration.js"></script><script defer src="player.js"></script><script defer src="studio.js"></script><script defer src="family.js"></script><script defer src="welcome.js"></script><script defer src="cloud.js"></script>
 </head>
 <body>
-<header class="mast"><div class="mast-inner"><a class="brand" href="#welcome"><img src="assets/postmark.svg" class="brand-mark" alt="">晚安邮局</a><nav aria-label="主导航" hidden><button data-nav="shelf">我的书架</button><button data-nav="create">写故事</button><button data-nav="family">我的家庭</button></nav><button hidden id="profile" class="profile" aria-label="切换听众">我的书架</button><button id="sign-in" data-act="login" class="primary">家长登录</button></div></header>
-<main id="app"><div class="wrap" role="status"><span class="meta">正在打开晚安邮局…</span><div class="hero" aria-hidden="true"><div class="hero-copy"><div class="bone" style="width:85%"></div><div class="bone" style="width:60%"></div></div><div class="bone coverbone" style="width:90%;height:220px"></div></div><div class="grid" aria-hidden="true"><div class="bone coverbone" style="width:100%"></div><div class="bone coverbone" style="width:100%"></div><div class="bone coverbone" style="width:100%"></div></div></div></main>
+<header class="mast" inert><div class="mast-inner"><a class="brand" href="#welcome"><img src="assets/postmark.svg" class="brand-mark" alt="">晚安邮局</a><nav aria-label="主导航" hidden><button data-nav="shelf">我的书架</button><button data-nav="create">写故事</button><button data-nav="family">我的家庭</button></nav><button hidden id="profile" class="profile" aria-label="切换听众">我的书架</button><button id="sign-in" data-act="login" class="primary">家长登录</button></div></header>
+<span id="home-status" class="sr-only" role="status">正在打开晚安邮局…</span>
+<main id="app" aria-busy="true" inert>
+  <div class="wrap welcome">
+    <section class="mail-hero">
+      <div class="mail-copy">
+        <div class="letterhead"><span class="home-icon" data-home-icon="envelope" data-size="22" style="width:22px;height:22px" aria-hidden="true"></span> <span class="home-ink">家庭有声故事书架</span></div>
+        <h1><span class="home-ink">把晚安，</span><br><em><span class="home-ink">讲成故事。</span></em></h1>
+        <p><span class="home-ink">从孩子今天的一个小念头开始。你来写、你来挑声音，把讲好的故事放进专属书架，明晚还能接着听。</span></p>
+        <div class="actions"><button type="button" class="primary" data-act="login">开启家庭书架</button><button type="button" class="secondary" data-act="guest-listen" data-id="fox"><span class="home-icon" data-home-icon="play" data-size="18" style="width:18px;height:18px" aria-hidden="true"></span> 先听一篇</button></div>
+      </div>
+      <figure class="postcard"><div class="postcard-art"><img src="assets/fox.webp" alt="小狐狸背着邮包，走在月光下的森林里"></div><figcaption><span><span class="home-icon" data-home-icon="moon" data-size="19" style="width:19px;height:19px" aria-hidden="true"></span> <span class="home-ink">月亮邮差</span></span><span class="postmark"><span class="home-icon" data-home-icon="mail" data-size="24" style="width:24px;height:24px" aria-hidden="true"></span> <span class="home-ink">晚安邮局</span></span></figcaption></figure>
+    </section>
+    <section class="sample-shelf">
+      <div class="head"><div><h2><span class="home-ink">先听听，今晚的故事</span></h2><p class="hint"><span class="home-ink">三封可以直接打开的声音来信。</span></p></div></div>
+      <div class="grid">
+      <article class="book">
+        <button class="cover" data-act="guest-listen" data-id="fox" aria-label="试听月亮邮差"><img src="assets/fox.webp" alt=""><span class="listen-dot"><span class="home-icon" data-home-icon="play" data-size="20" style="width:20px;height:20px" aria-hidden="true"></span></span></button>
+        <div class="book-info"><div><button class="book-title titleface" data-act="guest-listen" data-id="fox"><span class="home-ink">月亮邮差</span></button><p class="meta"><span class="home-ink">森林奇遇 · 0:47</span></p></div></div>
+      </article>
+      <article class="book">
+        <button class="cover" data-act="guest-listen" data-id="rabbit" aria-label="试听星星花园"><img src="assets/rabbit.webp" alt=""><span class="listen-dot"><span class="home-icon" data-home-icon="play" data-size="20" style="width:20px;height:20px" aria-hidden="true"></span></span></button>
+        <div class="book-info"><div><button class="book-title titleface" data-act="guest-listen" data-id="rabbit"><span class="home-ink">星星花园</span></button><p class="meta"><span class="home-ink">晚安童话 · 0:48</span></p></div></div>
+      </article>
+      <article class="book">
+        <button class="cover" data-act="guest-listen" data-id="bear" aria-label="试听小熊的纸船"><img src="assets/bear.webp" alt=""><span class="listen-dot"><span class="home-icon" data-home-icon="play" data-size="20" style="width:20px;height:20px" aria-hidden="true"></span></span></button>
+        <div class="book-info"><div><button class="book-title titleface" data-act="guest-listen" data-id="bear"><span class="home-ink">小熊的纸船</span></button><p class="meta"><span class="home-ink">温暖友谊 · 0:49</span></p></div></div>
+      </article>
+      </div>
+    </section>
+    <section class="visitor-steps"><h2><span class="home-ink">从一个念头，到枕边的声音</span></h2><div class="grid">
+      <div><span class="home-icon" data-home-icon="pen" data-size="34" style="width:34px;height:34px" aria-hidden="true"></span><h3><span class="home-ink">写下奇思妙想</span></h3><p><span class="home-ink">说一句想法，或带来自己写的故事。</span></p></div>
+      <div><span class="home-icon" data-home-icon="headphones" data-size="34" style="width:34px;height:34px" aria-hidden="true"></span><h3><span class="home-ink">听过，再放进书架</span></h3><p><span class="home-ink">家长读稿、修改，试听满意后发布。</span></p></div>
+      <div><span class="home-icon" data-home-icon="shelf" data-size="34" style="width:34px;height:34px" aria-hidden="true"></span><h3><span class="home-ink">让孩子自己挑</span></h3><p><span class="home-ink">点熟悉的封面就能听，喜欢的故事可以收藏。</span></p></div>
+    </div></section>
+  </div>
+</main>
+<template id="shelf-layout">
+  <div class="wrap family-shelf">
+    <section class="hero">
+      <div class="hero-copy"><span class="eyebrow">今晚的枕边故事</span><h1><span class="home-ink">月亮邮差</span></h1><p><span class="home-ink">最后一扇窗快要熄灯时，小狐狸的邮包里还躺着一封信。</span></p><div class="actions"><button class="primary" data-act="listen"><span class="home-icon" style="width:18px;height:18px"></span>听这个故事</button></div></div>
+      <button class="hero-art" data-act="listen"><img src="assets/fox.webp" alt=""></button>
+    </section>
+    <section><div class="head"><h2><span class="home-ink">家庭的书架</span></h2><div class="tabs"><button class="tab on" data-act="filter" data-id="all">全部故事</button><button class="tab" data-act="filter" data-id="fav">我喜欢的</button><button class="tab" data-act="filter" data-id="home">家庭原创</button></div></div>
+      <div class="grid"><article class="book"><button class="cover" data-act="listen"><img src="assets/fox.webp" alt=""></button><div class="book-info"><div><button class="book-title titleface" data-act="listen">月亮邮差</button><div class="meta"><span class="home-ink">森林奇遇 · 0:47</span></div></div><button class="heart" data-act="fav"><span class="home-icon" style="width:23px;height:23px"></span></button></div></article></div>
+    </section>
+  </div>
+</template>
+<template id="guest-cache"></template>
+<script>
+  // Select only a public layout before the first paint. Authorization comes from the session API.
+  const shelfTemplate=document.getElementById('shelf-layout').content;
+  const sampleTile=shelfTemplate.querySelector('.book');
+  sampleTile.after(sampleTile.cloneNode(true),sampleTile.cloneNode(true));
+  let expectShelf=location.hash==='#shelf';
+  try { expectShelf ||= localStorage.getItem('last-home')==='shelf'||sessionStorage.getItem('post-office-login')==='yes'; } catch {}
+  if(expectShelf){
+    const app=document.getElementById('app');
+    document.getElementById('guest-cache').content.append(app.firstElementChild);
+    app.replaceChildren(shelfTemplate.cloneNode(true));
+    document.querySelector('.mast nav').hidden=false;
+    const profile=document.getElementById('profile');
+    profile.hidden=false;profile.innerHTML='<span class="avatar"></span>选择听众';
+    document.getElementById('sign-in').hidden=true;
+  }
+</script>
 <div id="mini" hidden></div><audio id="audio" preload="metadata"></audio>
 <dialog id="dialog"><form id="dialog-form"><div class="dialog-head"><h2 id="dialog-title"></h2><button type="button" class="icon" aria-label="关闭" data-close><span data-symbol="close"></span></button></div><div id="dialog-body"></div><p id="dialog-error" class="error" role="alert"></p><div class="dialog-actions" id="dialog-actions"></div></form></dialog>
 <div id="notice" role="status" aria-live="polite"></div>

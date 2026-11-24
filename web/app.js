@@ -91,6 +91,10 @@ function navigate(){
   page=name;routeId=id;render();scrollTo(0,0);
 }
 function render(){
+  if(cloud){
+    const home=signedIn?'shelf':'welcome';
+    try{if(localStorage.getItem('last-home')!==home)localStorage.setItem('last-home',home);}catch{}
+  }
   frontHeader();
   document.body.classList.toggle('night',page==='player');
   document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('current',b.dataset.nav===(page==='edit'?'create':page==='services'?'family':page==='player'?'shelf':page)));
@@ -108,13 +112,39 @@ function listed(){
 function keyFor(item){return [state.kid,item.id,item.recording||'sample'].join(':')}
 function liked(id){return (state.favorites[state.kid]||[]).includes(id)}
 function shelf(){
+  const root=shelfTemplate.firstElementChild.cloneNode(true);
   const items=listed();
-  const featured=items.slice().sort((a,b)=>(state.progress[keyFor(b)]?.at||0)-(state.progress[keyFor(a)]?.at||0))[0];
+  const lastPlayed=item=>state.progress[keyFor(item)]?.at||0;
+  const featured=items.reduce((latest,item)=>lastPlayed(item)>lastPlayed(latest)?item:latest);
   const pos=state.progress[keyFor(featured)]?.pos||0;
-  let rows=filter==='fav'?items.filter(i=>liked(i.id)):filter==='home'?items.filter(i=>!sample(i.id)):items;
-  return `<div class="wrap">${coach(5)}${activeTour()&&adult&&state.tourV2.step<5?act('resume-tour','接着上次的新手引导','light'):''}<section class="hero"><div class="hero-copy"><span class="eyebrow">${pos?'接着上次听':'今晚的枕边故事'}</span><h1>${html(featured.title)}</h1><p>${html(featured.text.split(/[。！？]/)[0])}。</p><div class="actions">${act('listen',icon('play',18)+(pos?'继续听 · '+time(pos):'听这个故事'),'primary',featured.id)}</div></div><button class="hero-art" data-act="listen" data-id="${html(featured.id)}" aria-label="播放${html(featured.title)}"><img src="${featured.cover}" alt=""></button></section>
-  <section><div class="head"><h2>${html(child()?.name||'家庭')}的书架</h2><div class="tabs">${[['all','全部故事'],['fav','我喜欢的'],['home','家庭原创']].map(([v,n])=>act('filter',n,'tab '+(filter===v?'on':''),v)).join('')}</div></div>
-  ${rows.length?'<div class="grid">'+rows.map(i=>`<article class="book"><button class="cover" data-act="listen" data-id="${html(i.id)}" aria-label="播放${html(i.title)}"><img src="${i.cover}" alt=""></button><div class="book-info"><div><button class="book-title titleface" data-act="listen" data-id="${html(i.id)}">${html(i.title)}</button><div class="meta">${html(i.theme)} · ${time(i.duration)}</div></div><button class="heart" data-act="fav" data-id="${html(i.id)}" aria-label="收藏${html(i.title)}" aria-pressed="${liked(i.id)}">${icon(liked(i.id)?'heart-fill':'heart',23)}</button></div></article>`).join('')+'</div>':empty(filter==='fav'?'喜欢的故事会放在这里':'书架等着第一篇家庭故事',filter==='fav'?'点故事旁的小爱心就能收藏。':'家长发布后，孩子就能在这里听。',filter==='home'?act('create','写一篇故事','primary'):act('filter','看看全部故事','secondary','all'))}</section></div>`;
+  const rows=filter==='fav'?items.filter(i=>liked(i.id)):filter==='home'?items.filter(i=>!sample(i.id)):items;
+  const intro=coach(5)+(activeTour()&&adult&&state.tourV2.step<5?act('resume-tour','接着上次的新手引导','light'):'');
+  root.insertAdjacentHTML('afterbegin',intro);
+  root.querySelector('.eyebrow').textContent=pos?'接着上次听':'今晚的枕边故事';
+  root.querySelector('h1 .home-ink').textContent=featured.title;
+  root.querySelector('.hero-copy p .home-ink').textContent=featured.text.split(/[。！？]/)[0]+'。';
+  root.querySelector('.hero-copy .actions').innerHTML=act('listen',icon('play',18)+(pos?'继续听 · '+time(pos):'听这个故事'),'primary',featured.id);
+  const art=root.querySelector('.hero-art');art.dataset.id=featured.id;
+  art.setAttribute('aria-label','播放'+featured.title);art.firstElementChild.src=featured.cover;
+  root.querySelector('h2 .home-ink').textContent=(child()?.name||'家庭')+'的书架';
+  for(const tab of root.querySelectorAll('.tab'))tab.classList.toggle('on',tab.dataset.id===filter);
+  const grid=root.querySelector('.grid');
+  if(rows.length){
+    const template=grid.firstElementChild;
+    grid.replaceChildren(...rows.map(item=>{
+      const tile=template.cloneNode(true);
+      for(const button of tile.querySelectorAll('[data-act]'))button.dataset.id=item.id;
+      const art=tile.querySelector('.cover');art.setAttribute('aria-label','播放'+item.title);art.firstElementChild.src=item.cover;
+      tile.querySelector('.book-title').textContent=item.title;
+      tile.querySelector('.meta .home-ink').textContent=item.theme+' · '+time(item.duration);
+      const heart=tile.querySelector('.heart');heart.setAttribute('aria-label','收藏'+item.title);
+      heart.setAttribute('aria-pressed',String(liked(item.id)));heart.innerHTML=icon(liked(item.id)?'heart-fill':'heart',23);
+      return tile;
+    }));
+  }else{
+    grid.outerHTML=empty(filter==='fav'?'喜欢的故事会放在这里':'书架等着第一篇家庭故事',filter==='fav'?'点故事旁的小爱心就能收藏。':'家长发布后，孩子就能在这里听。',filter==='home'?act('create','写一篇故事','primary'):act('filter','看看全部故事','secondary','all'));
+  }
+  return root.outerHTML;
 }
 function empty(title,body,button=''){return `<div class="empty"><div class="art" aria-hidden="true">${icon('book',44)}</div><h3>${html(title)}</h3><p class="hint">${html(body)}</p>${button}</div>`}
 function title(h,desc=''){return `<div class="page-title"><h1>${html(h)}</h1>${desc?'<p>'+html(desc)+'</p>':''}</div>`}
@@ -137,5 +167,34 @@ document.addEventListener('focusin',e=>{const f=e.target.closest('.secret');if(f
 document.addEventListener('focusout',e=>{const f=e.target.closest('.secret');if(f&&!f.contains(e.relatedTarget)){f.querySelector('input').type='password';f.querySelector('.mascot').innerHTML=icon('fox',38);const b=f.querySelector('[data-eye]');b.innerHTML=icon('eye-off');b.setAttribute('aria-pressed','false');b.setAttribute('aria-label','显示内容');}});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;try{if(f.id==='dialog-form'){await modalSubmit?.(new FormData(f),f)}else await forms.get(f.id)?.(new FormData(f),f)}catch(err){if($('#dialog').open)$('#dialog-error').textContent=err.message;else notify(err.message);}});
 $('#dialog').addEventListener('cancel',e=>{e.preventDefault();closeDialog()});
-window.addEventListener('hashchange',navigate);
-window.addEventListener('DOMContentLoaded',async()=>{try{if(!await cloudBoot())await load();}catch(e){$('#app').textContent=e.message||'打开书架失败，请刷新重试。';return;}document.querySelectorAll('[data-symbol]').forEach(el=>el.innerHTML=icon(el.dataset.symbol));resumeJobs();navigate()});
+window.addEventListener('hashchange',()=>{if(!$('.mast').inert)navigate();});
+function showHomeLoading(member){
+  if(!$('#app').hasAttribute('inert'))return;
+  frontHeader(!member);
+  if(member){
+    $('#profile').innerHTML='<span class="avatar">'+icon('rabbit',27)+'</span>选择听众';
+    if(!$('#app .family-shelf'))$('#app').replaceChildren(shelfTemplate.cloneNode(true));
+  }else if(!$('#app .welcome')){
+    $('#app').innerHTML=welcome();
+  }
+}
+function finishHomeLoading(){
+  $('#app').removeAttribute('aria-busy');$('#app').inert=false;
+  $('.mast').inert=false;$('#home-status')?.remove();
+}
+window.addEventListener('DOMContentLoaded',async()=>{
+  try{
+    showHomeLoading(expectShelf);
+    if(!await cloudBoot()){showHomeLoading(signedIn);await load();}
+    document.querySelectorAll('[data-symbol]').forEach(el=>el.innerHTML=icon(el.dataset.symbol));
+    resumeJobs();navigate();finishHomeLoading();
+  }catch(e){
+    const app=$('#app');
+    const message=document.createElement('p');
+    message.setAttribute('role','alert');message.textContent=e.message||'暂时无法打开书架。';
+    const retry=document.createElement('button');
+    retry.className='primary';retry.textContent='重新打开';retry.onclick=()=>location.reload();
+    app.replaceChildren(message,retry);
+    app.removeAttribute('aria-busy');app.inert=false;$('#home-status')?.remove();
+  }
+});
