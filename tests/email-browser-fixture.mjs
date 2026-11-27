@@ -9,7 +9,7 @@ export async function emailBrowserFixture(){
   const app={
     name:'app',modules:readdirSync('server').filter(f=>f.endsWith('.mjs')).sort((a,b)=>Number(b==='worker.mjs')-Number(a==='worker.mjs'))
       .map(f=>({type:'ESModule',path:'server/'+f})),compatibilityDate:'2026-08-01',
-    d1Databases:['DB'],r2Buckets:['FILES'],queueProducers:{JOBS:'jobs'},
+    d1Databases:['DB'],r2Buckets:['FILES'],queueProducers:{JOBS:'jobs'},queueConsumers:{jobs:{maxBatchSize:1,maxBatchTimeout:0}},
     serviceBindings:{ASSETS:async request=>{
       const name=new URL(request.url).pathname;
       const file=resolve('web','.'+(name==='/'?'/index.html':name));
@@ -23,6 +23,12 @@ export async function emailBrowserFixture(){
       if(request.url==='https://challenges.cloudflare.com/turnstile/v0/siteverify'){
         const {secret,response}=await request.json();
         return Response.json({success:secret==='fixture-private' && response.startsWith('fixture-'),action:'email_send',hostname:'127.0.0.1'});
+      }
+      if(request.url==='https://api.openai.com/v1/chat/completions'){
+        const {messages}=await request.json();
+        const planning=messages[0].content.includes('先规划全书');
+        const content=planning ? JSON.stringify({title:'嘟嘟的小城巡游',chapters:Array.from({length:24},(_,i)=>({title:'第'+(i+1)+'站',scene:'巡游小城'}))}) : '嘟嘟轻轻转动车轮。'.repeat(125);
+        return Response.json({choices:[{finish_reason:'stop',message:{content}}]});
       }
       if(request.url!=='https://api.resend.com/emails')return new Response(null,{status:404});
       const mail=await request.json();inbox.set(mail.to[0],mail.text.match(/\d{6}/)[0]);

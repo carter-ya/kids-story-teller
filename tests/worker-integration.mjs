@@ -12,7 +12,7 @@ const upstream=`let once=true;let code;const read=new Set();export default {asyn
   }
   if(url.hostname==='mailbox.test')return new Response(code);
   if(!['api.openai.com','api.deepseek.com'].includes(url.hostname)||req.headers.get('Authorization')!=='Bearer test-fixture-only')return new Response(null,{status:401});
-  if(url.pathname.includes('chat/completions'))return Response.json({choices:[{finish_reason:'stop',message:{content:'小兔回到家。'}}]});
+  if(url.pathname.includes('chat/completions'))return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({title:'小兔归家',text:'小兔回到家。'})}}]});
   const [client,server]=Object.values(new WebSocketPair());server.accept();
   server.addEventListener('message',event=>{
     const m=JSON.parse(event.data);
@@ -29,7 +29,7 @@ const upstream=`let once=true;let code;const read=new Set();export default {asyn
 }}`;
 
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[
-  { name:'app',modules:['worker','email','maintenance','assets','common','accounts','configs','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
+  { name:'app',modules:['worker','email','maintenance','assets','common','accounts','configs','family','generation','providers','story-writing'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
     outboundService:'provider-fixture',d1Databases:['DB'],r2Buckets:['FILES'],
     queueProducers:{JOBS:'audio'},queueConsumers:{audio:{maxBatchSize:1,maxBatchTimeout:0}},
     bindings:{TURNSTILE_SITE_KEY:'fixture-public',TURNSTILE_SECRET_KEY:'fixture-private',RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test',VAULT_KEY:randomBytes(32).toString('hex')} },
@@ -37,7 +37,7 @@ const mf=new Miniflare(convertV4MiniflareOptions({workers:[
 ]}));
 try{
   const db=await mf.getD1Database('DB','app');
-  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql','0006_email_login.sql','0007_retire_legacy.sql']){
+  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql','0006_email_login.sql','0007_retire_legacy.sql','0008_story_chapters.sql']){
     let sql='';
     for(const line of readFileSync('migrations/'+fn,'utf8').trim().split('\n')){
       sql+=line+'\n';
@@ -69,7 +69,7 @@ try{
     }
     assert.fail('Generation timed out');
   }
-  assert.equal((await waitForJob(write.id)).text,'小兔回到家。');
+  const draft=await waitForJob(write.id);assert.equal(draft.text,'小兔回到家。');assert.equal(draft.title,'小兔归家');
   const takes=[];
   for(const provider of ['deepseek','openai']){
     assert.equal((await api('credentials/'+provider,'PUT',{key:'test-fixture-only'})).status,200);

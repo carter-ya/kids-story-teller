@@ -1,3 +1,4 @@
+import {writeStep} from './story-writing.mjs';
 import {ApiError,requireValue} from './common.mjs';
 
 const realtime='gpt-realtime-2.1-mini';
@@ -90,11 +91,21 @@ export async function narrate(job,key,connect=fetch,checkpoint=null){
   requireValue(size>44&&size<=capacity,502,'录音不完整。');
   return new Blob([wavHeader(size-44),...audio],{type:'audio/wav'});
 }
-export async function writeStory(job,key,connect=fetch){
+export async function writeStory(job,key,connect=fetch,beforeCall=null){
   const url=job.endpoint?job.endpoint+'/chat/completions':job.provider==='openai'?'https://api.openai.com/v1/chat/completions':'https://api.deepseek.com/chat/completions';
-  const r=await connect(url,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(120000),headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({model:job.model,...(job.provider==='openai'?{max_completion_tokens:3000}:{max_tokens:3000,thinking:{type:'disabled'}}),messages:[{role:'system',content:job.kind==='rewrite'?'按照家长提供的修改要求润色儿童故事的这一段。只输出替换用的一个段落，保持人物、事实和人称一致，避免惊吓。':'为儿童写一篇约 400 字的温柔中文故事。只输出可直接朗读的正文。避免惊吓、暴力和私人联系方式。'},...(job.age||job.avoid?[{role:'user',content:'听众年龄段：'+(job.age||'不限')+'。请避开：'+(job.avoid||'无')+'。'}]:[]),{role:'user',content:job.input}]})});
-  checkProviderStatus(r.status);requireValue(r.ok,502,'写作服务未完成，请检查模型和额度。');
-  const answer=(await r.json()).choices?.[0];
-  requireValue(answer?.finish_reason==='stop'&&typeof answer.message?.content==='string'&&answer.message.content.trim()&&answer.message.content.length<=16000,502,'写作服务未返回完整故事。');
-  return answer.message.content.trim();
+  return writeStep(job, async (instructions, context = '') => {
+    const messages = [{role:'system',content:instructions}];
+    if(job.age || job.avoid) messages.push({role:'user',content:'听众年龄段：'+(job.age||'不限')+'。请避开：'+(job.avoid||'无')+'。'});
+    messages.push({role:'user',content:job.input});
+    if(context) messages.push({role:'user',content:context});
+    const budget = job.provider==='openai' ? {max_completion_tokens:4000} : {max_tokens:4000,thinking:{type:'disabled'}};
+    if(beforeCall)await beforeCall();
+    const r = await connect(url,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(120000),
+      headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
+      body:JSON.stringify({model:job.model,...budget,messages})});
+    checkProviderStatus(r.status);requireValue(r.ok,502,'写作服务未完成，请检查模型和额度。');
+    const answer=(await r.json()).choices?.[0];
+    requireValue(answer?.finish_reason==='stop'&&typeof answer.message?.content==='string'&&answer.message.content.trim()&&answer.message.content.length<=16000,502,'写作服务未返回完整故事。');
+    return answer.message.content.trim();
+  });
 }

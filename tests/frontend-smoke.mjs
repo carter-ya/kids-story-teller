@@ -95,10 +95,22 @@ try {
     await click('#new-story [type=submit]');await exists('#edit-form');await js('flushCloud()');
     await reload();await exists('#edit-form');
     assert.equal(await js("document.querySelector('[name=title]').value"),'云端故事');
+    await click('[data-nav=create]');await fill('[name=idea]','消防车嘟嘟，播放时长2小时左右的故事，给3岁孩子讲不同的场景和英文单词。');
+    await click('#new-story [type=submit]');await fill('[name=key]','browser-fixture-only');await click('#dialog-actions [type=submit]');
+    await exists('[data-act=open-chapter]');
+    assert.equal(await js("document.querySelector('[name=title]').value"),'嘟嘟的小城巡游');
+    assert.equal(await js("manuscriptChapters(document.querySelector('[name=text]').value).length"),24);
+    await js('flushCloud()');await reload();await exists('[data-act=open-chapter]');
+    if(process.env.STORY_DESIGN_SHOTS){
+      await js("document.querySelector('[data-act=open-chapter]').scrollIntoView({block:'center'})");
+      await captureDesign('chapter-recording');
+    }
+    await click('[aria-controls=pick-record-chapter-options]');await click('#pick-record-chapter-options [data-value="1"]');await click('[data-act=open-chapter]');
+    await exists('[data-act=record]');
+    assert.equal(await js("document.querySelector('[name=title]').value"),'第2章 第2站');
+    assert.ok(await js("document.querySelector('[name=text]').value.length<=4000"));
+    await js('flushCloud()');
     await click('[data-nav=family]');await click('[data-act=family-tab][data-id=services]');
-    await click('[data-act=add-config][data-id=write]');await fill('[name=key]','browser-fixture-only');
-    await click('#dialog-actions [type=submit]');
-    await until(()=>js("cloudServices.some(s=>s.type==='write') && !document.querySelector('#dialog').open"),'saved writing key');
     await click('[data-act=add-config][data-id=voice]');
     assert.equal(await js("document.querySelector('[name=keyFrom]').value"),await js("cloudServices.find(s=>s.type==='write').id"));
     assert.equal(await js("document.querySelector('[name=key]').disabled"),true);
@@ -124,7 +136,7 @@ try {
     await until(()=>js("document.querySelector('[data-act=revoke-adult]')===null"),'adult removed');
     await click('[data-act=erase-family]');await fill('[name=confirm]','删除整个家庭');await click('#dialog-actions [type=submit]');await exists('.welcome');
     assert.equal(await js('signedIn'),false);assert.deepEqual(errors,[]);
-    console.log('PASS · cloud household creation, onboarding, saved draft after reload, child isolation, adult login, one-time invitation, removal, archive permissions and confirmed erasure');
+    console.log('PASS · cloud household creation, onboarding, 24-chapter writing, model title after reload, chapter recording draft, child isolation, adult login, one-time invitation, removal, archive permissions and confirmed erasure');
   }else{
   await click('#sign-in');
   await click('#dialog-actions [type=submit]');await exists('#guide-family');
@@ -136,6 +148,7 @@ try {
   await fill('[name=endpoint]','https://example.org/v1');await fill('[name=key]','test-placeholder');
   await click('#dialog-actions [type=submit]');await exists('#edit-form');
   assert.match(await js("document.querySelector('.coach').textContent"),/3 \/ 5/);
+  assert.equal(await js("document.querySelector('[name=title]').value"),'小狐狸的羽毛来信');
   await fill('[name=text]','小狐狸在云朵上吃晚餐。晚安。');await click('#edit-form [type=submit]');
   await click('[data-act=record]');await click('#dialog-actions [type=submit]');await click('#dialog-actions [type=submit]');
   await exists('[data-act=publish]');assert.match(await js("document.querySelector('.coach').textContent"),/4 \/ 5/);await click('[data-act=publish]');await click('#dialog-actions [type=submit]');
