@@ -13,13 +13,13 @@ npm run db:local
 npm run dev
 ```
 
-在被 Git 忽略的 `.dev.vars` 中设置 `RESEND_API_KEY` 和 `RESEND_FROM`。发件地址须使用你在 Resend 验证过的域名。打开 Wrangler 显示的地址，点「家长登录」，输入邮箱和邮件中的六位验证码。首次验证后自动创建家庭。在「我的家庭 → 模型与声音」连接 OpenAI 或 DeepSeek，选择写作模型或使用配音预设，先试听再生成全篇。可以直接导入自己的稿件。把设备交给孩子前，点「交给孩子」。
+在被 Git 忽略的 `.dev.vars` 中设置 `RESEND_API_KEY`、`RESEND_FROM`、`TURNSTILE_SITE_KEY` 和 `TURNSTILE_SECRET_KEY`。本地使用允许 localhost 的开发小部件。发件地址须使用你在 Resend 验证过的域名。打开 Wrangler 显示的地址，点「家长登录」，输入邮箱和邮件中的六位验证码。首次验证后自动创建家庭。在「我的家庭 → 模型与声音」连接 OpenAI 或 DeepSeek，选择写作模型或使用配音预设，先试听再生成全篇。可以直接导入自己的稿件。把设备交给孩子前，点「交给孩子」。
 
 Workers 提供同源 API，D1 保存家庭、会话、任务和加密后的凭据，私有 R2 保存书架及 WAV 录音，Queues 执行写作和配音。每个家庭最多 20 人、100 篇故事、100 MB。单次书架 JSON 请求限 8 MB，单篇配音最多 4000 字、32 MB。后台会回收未引用的录音，临时试听至少保留一天。不同设备同时编辑时页面提示版本冲突，可先导出稿件再重新加载。
 
 ## 部署到 Cloudflare
 
-在目标账户创建 D1 数据库 `story-families`、R2 存储桶 `story-family-files` 和队列 `story-narration`，在自己的部署配置中填写 D1 的 `database_id`。使用 `npx wrangler secret put VAULT_KEY` 设置单独生成的 64 位十六进制密钥。用同一部署配置分别执行 `npx wrangler secret put RESEND_API_KEY` 和 `npx wrangler secret put RESEND_FROM`，按提示填写发送密钥和已验证域名的发件地址。运行 `npx wrangler d1 migrations apply DB --remote`（包括 `0006_email_login.sql`）后执行 `npx wrangler deploy --keep-vars`，保留控制台中配置的发件地址。以 HTTPS 访问站点，保持 R2 私有。仓库配置不含真实邮箱、账号标识或服务商密钥。
+在目标账户创建 D1 数据库 `story-families`、R2 存储桶 `story-family-files` 和队列 `story-narration`，在自己的部署配置中填写 D1 的 `database_id`。使用 `npx wrangler secret put VAULT_KEY` 设置单独生成的 64 位十六进制密钥。用同一部署配置分别执行 `npx wrangler secret put RESEND_API_KEY` 和 `npx wrangler secret put RESEND_FROM`，按提示填写发送密钥和已验证域名的发件地址。运行 `npx wrangler d1 migrations apply DB --remote`（包括 `0006_email_login.sql`）后执行 `npx wrangler deploy --keep-vars`，保留控制台中配置的发件地址。在 Cloudflare Turnstile 创建 Invisible 小部件并限定本站域名，将站点公钥配置为 Worker 变量 `TURNSTILE_SITE_KEY`，通过 Wrangler secret 配置 `TURNSTILE_SECRET_KEY`。以 HTTPS 访问站点，保持 R2 私有。仓库配置不含真实邮箱、账号标识或服务商密钥。
 
 平台开销取决于账号总用量，100 MB 是单个家庭的应用额度。Queues 和 R2 各有免费用量，写作和配音由家长的服务商账户独立计费。[Queues 价格](https://developers.cloudflare.com/queues/platform/pricing/) · [R2 价格](https://developers.cloudflare.com/r2/pricing/)
 
@@ -64,7 +64,7 @@ node tests/frontend-smoke.mjs http://127.0.0.1:8000/
 
 ## 邮箱登录与家庭邀请
 
-家长输入邮箱后查收六位验证码，10 分钟内有效。再次发送需间隔 60 秒，连续输错五次后需重新获取。每个邮箱关联一个家庭；孩子在平板上使用听众档案，从儿童模式回到家长区需验证本家庭的家长邮箱。
+家长输入邮箱后查收六位验证码，10 分钟内有效。首发和重发均执行无感验证。Worker 核对令牌、站点和用途后才寄信。每个邮箱每 60 秒 1 封、每小时 6 封、每 24 小时 12 封。每个 IP 每小时最多发起 20 次发送，校验验证码每分钟 12 次、每小时 60 次。单码累计输错五次后需重新获取。每个邮箱关联一个家庭；孩子在平板上使用听众档案，从儿童模式回到家长区需验证本家庭的家长邮箱。
 
 管理员在「邀请成人」生成仅可使用一次的链接，私下发给另一位照护者。对方打开链接后验证自己的邮箱，链接一天后到期。撤销访问会注销其设备并清除其个人服务配置。
 

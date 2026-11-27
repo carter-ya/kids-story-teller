@@ -1,6 +1,7 @@
 // The static preview keeps its own local household. Worker sessions always start from the server.
 let cloud=false,cloudRevision=0,cloudFamily=null,cloudDirty=false,cloudFlight=null,cloudTimer,cloudConflict=false,cloudMedia=0;
 let cloudEpoch=0,cloudAdult=null,cloudAccounts=[],cloudServices=[];
+let turnstileSiteKey;
 let shelfWrites=Promise.resolve();
 function serializeShelfWrite(action){
   const write=shelfWrites.then(action);shelfWrites=write.catch(()=>{});return write;
@@ -17,6 +18,7 @@ async function cloudBoot(){
   if(r.status===404||(r.ok&&r.headers.get('content-type')?.includes('text/html')))return false;
   if(!r.ok)throw Error('家庭书架暂时不可用，请刷新重试。');
   const session=await r.json();if(session.cloud!==true)throw Error('无法识别家庭服务。');
+  turnstileSiteKey=session.turnstileSiteKey;
   cloud=true;selectLoadingPage({member:Boolean(session.family),known:true,kid:session.kid});
   try{await enterCloud(session);}catch(e){
     if(![401,403].includes(e.status))throw e;
@@ -62,18 +64,30 @@ function listenerChange(id,patch){
 window.addEventListener('beforeunload',event=>{if(cloud&&(cloudDirty||cloudFlight)){event.preventDefault();event.returnValue='';}});
 function cloudLogin(after,unlock=false,invitation=''){
   let email='',id='',readyAt=0;
+  const mailProtection='<div data-mail-proof></div><small>此处使用 Cloudflare Turnstile 保护邮箱。<a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">隐私说明</a></small>';
+  async function sendCode(){
+    const host=$('#dialog [data-mail-proof]');
+    try{
+      $('#dialog-error').textContent='';
+      const token=await mailProof(host,turnstileSiteKey);
+      if(!host.isConnected||!$('#dialog').open)return;
+      return await api('session/email/send','POST',{email,turnstileToken:token});
+    }catch(error){
+      if(host.isConnected&&$('#dialog').open)throw error;
+    }
+  }
   function addressStep(){
     const heading=invitation?'加入家庭书架':unlock?'回到家长区':'邮箱登录';
     const hint=invitation?'用自己的邮箱接受邀请，以后用这个邮箱回到家庭。':unlock?'请用本家庭家长的邮箱接收验证码。':'首次验证会为你创建家庭书架。';
-    dialog(heading,'<div class="mail-note"><span aria-hidden="true">'+icon('envelope',32)+'</span><p>'+hint+'</p></div>'+'<label class="field">家长邮箱<input type="email" name="email" autocomplete="email" inputmode="email" maxlength="254" required value="'+html(email)+'"></label>',
+    dialog(heading,'<div class="mail-note"><span aria-hidden="true">'+icon('envelope',32)+'</span><p>'+hint+'</p></div>'+'<label class="field">家长邮箱<input type="email" name="email" autocomplete="email" inputmode="email" maxlength="254" required value="'+html(email)+'"></label>'+mailProtection,
       submitBtn('发送验证码'),async(data,form)=>{
         const button=form.querySelector('[type=submit]');
         if(button.disabled)return;
         email=data.get('email').trim();
         button.disabled=true;
         try{
-          const response=await api('session/email/send','POST',{email});
-          if(!button.isConnected||!$('#dialog').open)return;
+          const response=await sendCode();
+          if(!response||!button.isConnected||!$('#dialog').open)return;
           id=response.id;readyAt=Date.now()+60000;codeStep();
         }finally{button.disabled=false;}
       });
@@ -81,7 +95,7 @@ function cloudLogin(after,unlock=false,invitation=''){
   }
   function codeStep(){
     dialog('查收验证码','<div class="mail-note"><span aria-hidden="true">'+icon('mail',32)+'</span><p>已寄到 <strong>'+html(email)+'</strong>，10 分钟内有效。</p></div>'+
-      '<label class="field">六位验证码<input class="mail-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>',
+      '<label class="field">六位验证码<input class="mail-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>'+mailProtection,
       '<button type="button" class="light" data-address>更改邮箱</button><button type="button" class="secondary" data-resend>重新发送</button>'+submitBtn('验证并继续'),async(data,form)=>{
         const button=form.querySelector('[type=submit]');
         if(button.disabled)return;
@@ -106,8 +120,8 @@ function cloudLogin(after,unlock=false,invitation=''){
     resend.onclick=async()=>{
       resend.disabled=true;
       try{
-        const r=await api('session/email/send','POST',{email});
-        if(!resend.isConnected||!$('#dialog').open)return;
+        const r=await sendCode();
+        if(!r||!resend.isConnected||!$('#dialog').open)return;
         id=r.id;readyAt=Date.now()+60000;codeStep();
       }catch(e){if(resend.isConnected){$('#dialog-error').textContent=e.message;resend.disabled=false;}}
     };

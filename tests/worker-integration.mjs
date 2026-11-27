@@ -6,6 +6,7 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
 const upstream=`let once=true;let code;const read=new Set();export default {async fetch(req) {
   const url=new URL(req.url);
+  if(url.hostname==='challenges.cloudflare.com')return Response.json({success:true,action:'email_send',hostname:'family.example'});
   if(url.hostname==='api.resend.com' && url.pathname==='/emails'){
     code=(await req.json()).text.match(/[0-9]{6}/)[0];return Response.json({id:'fixture'});
   }
@@ -31,7 +32,7 @@ const mf=new Miniflare(convertV4MiniflareOptions({workers:[
   { name:'app',modules:['worker','email','maintenance','assets','common','accounts','configs','family','generation','providers'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
     outboundService:'provider-fixture',d1Databases:['DB'],r2Buckets:['FILES'],
     queueProducers:{JOBS:'audio'},queueConsumers:{audio:{maxBatchSize:1,maxBatchTimeout:0}},
-    bindings:{RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test',VAULT_KEY:randomBytes(32).toString('hex')} },
+    bindings:{TURNSTILE_SITE_KEY:'fixture-public',TURNSTILE_SECRET_KEY:'fixture-private',RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test',VAULT_KEY:randomBytes(32).toString('hex')} },
   { name:'provider-fixture',modules:true,script:upstream,compatibilityDate:'2026-08-01' }
 ]}));
 try{
@@ -49,7 +50,7 @@ try{
     if(r.headers.has('Set-Cookie'))cookie=r.headers.get('Set-Cookie').split(';')[0];return r;
   }
   async function signIn(){
-    const response=await api('session/email/send','POST',{email:'parent@example.test'});
+    const response=await api('session/email/send','POST',{email:'parent@example.test',turnstileToken:crypto.randomUUID()});
     assert.equal(response.status,200);
     const {id}=await response.json();
     const fixture=await mf.getWorker('provider-fixture');

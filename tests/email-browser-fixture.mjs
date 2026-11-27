@@ -18,8 +18,12 @@ export async function emailBrowserFixture(){
       try{return new Response(readFileSync(file),{headers:{'Content-Type':types[extname(file)]||'application/octet-stream'}});}
       catch{return new Response(null,{status:404});}
     }},
-    bindings:{VAULT_KEY:randomBytes(32).toString('hex'),RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test'},
+    bindings:{VAULT_KEY:randomBytes(32).toString('hex'),TURNSTILE_SITE_KEY:'fixture-public',TURNSTILE_SECRET_KEY:'fixture-private',RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test'},
     outboundService:async request=>{
+      if(request.url==='https://challenges.cloudflare.com/turnstile/v0/siteverify'){
+        const {secret,response}=await request.json();
+        return Response.json({success:secret==='fixture-private' && response.startsWith('fixture-'),action:'email_send',hostname:'127.0.0.1'});
+      }
       if(request.url!=='https://api.resend.com/emails')return new Response(null,{status:404});
       const mail=await request.json();inbox.set(mail.to[0],mail.text.match(/\d{6}/)[0]);
       return Response.json({id:crypto.randomUUID()});

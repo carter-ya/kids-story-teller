@@ -16,21 +16,36 @@ function newCode() {
   return String(random[0] % 1000000).padStart(6,'0');
 }
 
-async function reserve(db,bucket,period,limit) {
+async function reserve(db,bucket,period,limit,message='发送次数已达上限，请稍后再试。') {
   const row = await db.prepare(`INSERT INTO email_send_limits VALUES(?,unixepoch()+?,1)
     ON CONFLICT(bucket) DO UPDATE SET used=CASE WHEN expires<=unixepoch() THEN 1 ELSE used+1 END,
     expires=CASE WHEN expires<=unixepoch() THEN excluded.expires ELSE expires END
     WHERE expires<=unixepoch() OR used<? RETURNING used`).bind(bucket,period,limit).first();
-  requireValue(row,429,'发送次数已达上限，请稍后再试。');
+  requireValue(row,429,message);
+}
+
+async function checkTurnstile(req,env,token) {
+  requireValue(typeof token==='string' && token.length>0 && token.length<=2048,400,'请重新进行安全验证。');
+  const remoteip=req.headers.get('CF-Connecting-IP');
+  const result=await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify',{
+    method:'POST',signal:AbortSignal.timeout(8000),headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({secret:env.TURNSTILE_SECRET_KEY,response:token,...(remoteip?{remoteip}:{})})
+  }).then(r=>r.ok?r.json():null).catch(()=>null);
+  requireValue(result,503,'安全验证暂时不可用，请稍后重试。');
+  requireValue(result.success===true && result.hostname===new URL(req.url).hostname && result.action==='email_send',
+    403,'安全验证已失效，请重试。');
+  // Siteverify replay detection can converge after redemption. Claim the proof atomically here, too.
+  await reserve(env.DB,'proof:'+await hash(token),300,1,'安全验证已使用，请重试。');
 }
 
 export async function sendEmailCode(req,env) {
-  requireValue(env.RESEND_API_KEY && env.RESEND_FROM && env.VAULT_KEY,503,'邮件服务暂时不可用，请稍后再试。');
-  const body = await readJson(req,2048);
+  requireValue(env.RESEND_API_KEY && env.RESEND_FROM && env.VAULT_KEY && env.TURNSTILE_SECRET_KEY && env.TURNSTILE_SITE_KEY,503,'邮件服务暂时不可用，请稍后再试。');
+  const body = await readJson(req,4096);
   const email = typeof body.email==='string' ? body.email.trim().toLowerCase() : '';
   requireValue(email.length<=254 && /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(email),400,'请输入有效的邮箱地址。');
   const ip = req.headers.get('CF-Connecting-IP') || 'local';
   await reserve(env.DB,'ip:'+await signature(env,'ip:'+ip),3600,20);
+  await checkTurnstile(req,env,body.turnstileToken);
   const id = newToken(), code = newCode();
   const mailbox=await signature(env,'mail:'+email);
   const cooling=await env.DB.prepare(`INSERT INTO email_send_limits VALUES(?,unixepoch()+60,1)
@@ -38,6 +53,7 @@ export async function sendEmailCode(req,env) {
     .bind('cooldown:'+mailbox).first();
   requireValue(cooling,429,'请在上一封邮件发出 60 秒后重试。');
   await reserve(env.DB,'mail:'+mailbox,3600,6);
+  await reserve(env.DB,'mail-day:'+mailbox,86400,12);
   await reserve(env.DB,'outbox',86400,Number(env.EMAIL_DAILY_LIMIT)||100);
   const response = await fetch('https://api.resend.com/emails',{method:'POST',signal:AbortSignal.timeout(15000),headers:{
     Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':id
@@ -81,6 +97,10 @@ async function acceptInvitation(env,email,claim,session) {
 
 export async function verifyEmailCode(req,env,session) {
   const body=await readJson(req,2048);
+  const ipKey=await signature(env,'ip:'+(req.headers.get('CF-Connecting-IP')||'local'));
+  const slowDown='验证码尝试太频繁，请稍后再试。';
+  await reserve(env.DB,'verify-minute:'+ipKey,60,12,slowDown);
+  await reserve(env.DB,'verify-hour:'+ipKey,3600,60,slowDown);
   const email=await verifiedMailbox(env,body);
   if(body.claim)await acceptInvitation(env,email,body.claim,session);
   const lookup=()=>env.DB.prepare('SELECT family,adult FROM email_accounts WHERE email=?').bind(email).first();
