@@ -95,7 +95,6 @@ function render(){
     try{if(localStorage.getItem('last-home')!==home)localStorage.setItem('last-home',home);}catch{}
   }
   frontHeader();
-  document.body.classList.toggle('night',page==='player');
   document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('current',b.dataset.nav===(page==='edit'?'create':page==='services'?'family':page==='player'?'shelf':page)));
   $('#profile').innerHTML='<span class="avatar" aria-hidden="true">'+icon('rabbit',27)+'</span>'+html(child()?.name||'选择听众');
   $('#app').innerHTML=pages.get(page)();
@@ -185,7 +184,7 @@ window.addEventListener('DOMContentLoaded',async()=>{
     message.setAttribute('role','alert');message.textContent=e.message||'暂时无法打开书架。';
     const retry=document.createElement('button');
     retry.className='primary';retry.textContent='重新打开';retry.onclick=()=>location.reload();
-    document.body.classList.remove('night');delete app.dataset.loadingPage;app.replaceChildren(message,retry);
+    delete app.dataset.loadingPage;app.replaceChildren(message,retry);
     app.removeAttribute('aria-busy');app.inert=false;$('#home-status')?.remove();
   }
 });
