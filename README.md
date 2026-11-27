@@ -19,11 +19,13 @@ Workers 提供同源 API，D1 保存家庭、会话、任务和加密后的凭�
 
 云端写作由模型拟书名和正文。家长可在想法里写「播放时长 2 小时左右」。系统按每分钟约 180 个汉字或英文单词估算，超过 5 分钟时先拟大纲，再按每章约 5 分钟生成，支持最长 4 小时。例如 2 小时约为 24 章、21600 个朗读字。实际时长取决于声音和停顿。写作中可查看已完成章数，分章任务中断后可在编辑器继续写作。每次模型调用会消耗所选服务的额度。
 
+家长可在写作时阅读已保存的章节，以及模型正在生成的正文。当前章在通过校验前标为草稿；刷新后可接着读，离开页面后任务继续。配音时也可以阅读原稿。
+
 全稿保存在一部作品中，可整体编辑或导出。在「按章配音」选择章节并打开本章配音稿，首次打开会用当前章节正文建立独立草稿，之后可单独编辑、配音和发布。整部两小时的未压缩 WAV 约需 346 MB，超过家庭的 100 MB 空间，按需配音时也须留意累计用量。
 
 ## 部署到 Cloudflare
 
-在目标账户创建 D1 数据库 `story-families`、R2 存储桶 `story-family-files` 和队列 `story-narration`，在自己的部署配置中填写 D1 的 `database_id`。使用 `npx wrangler secret put VAULT_KEY` 设置单独生成的 64 位十六进制密钥。用同一部署配置分别执行 `npx wrangler secret put RESEND_API_KEY` 和 `npx wrangler secret put RESEND_FROM`，按提示填写发送密钥和已验证域名的发件地址。运行 `npx wrangler d1 migrations apply DB --remote`（包括 `0008_story_chapters.sql`）后执行 `npx wrangler deploy --keep-vars`，保留控制台中配置的发件地址。在 Cloudflare Turnstile 创建 Invisible 小部件并限定本站域名，将站点公钥配置为 Worker 变量 `TURNSTILE_SITE_KEY`，通过 Wrangler secret 配置 `TURNSTILE_SECRET_KEY`。以 HTTPS 访问站点，保持 R2 私有。仓库配置不含真实邮箱、账号标识或服务商密钥。
+在目标账户创建 D1 数据库 `story-families`、R2 存储桶 `story-family-files` 和队列 `story-narration`，在自己的部署配置中填写 D1 的 `database_id`。使用 `npx wrangler secret put VAULT_KEY` 设置单独生成的 64 位十六进制密钥。用同一部署配置分别执行 `npx wrangler secret put RESEND_API_KEY` 和 `npx wrangler secret put RESEND_FROM`，按提示填写发送密钥和已验证域名的发件地址。运行 `npx wrangler d1 migrations apply DB --remote`（包括 `0009_writing_preview.sql`）后执行 `npx wrangler deploy --keep-vars`，保留控制台中配置的发件地址。在 Cloudflare Turnstile 创建 Invisible 小部件并限定本站域名，将站点公钥配置为 Worker 变量 `TURNSTILE_SITE_KEY`，通过 Wrangler secret 配置 `TURNSTILE_SECRET_KEY`。以 HTTPS 访问站点，保持 R2 私有。仓库配置不含真实邮箱、账号标识或服务商密钥。
 
 平台开销取决于账号总用量，100 MB 是单个家庭的应用额度。Queues 和 R2 各有免费用量，写作和配音由家长的服务商账户独立计费。[Queues 价格](https://developers.cloudflare.com/queues/platform/pricing/) · [R2 价格](https://developers.cloudflare.com/r2/pricing/)
 

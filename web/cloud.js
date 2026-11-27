@@ -220,6 +220,27 @@ function cloudBegin(s,type,style){
   state.jobs[s.id]={request,actor:cloudAdult,type,voice:style||'',input,title:s.title,provider:c.provider,model:c.model,config:c.id,managed:c.managed||false,listener:state.kid};
   markCloud();go('edit',s.id);cloudPoll(s.id);
 }
+// Return the terminal snapshot, or fall back to an authenticated status read
+// when the short-lived stream closes or a gateway does not support SSE.
+function watchWriting(id,job,epoch){
+  return new Promise(resolve=>{
+    const source=new EventSource('/api/generation/'+encodeURIComponent(job.request));
+    const finish=result=>{clearTimeout(timer);source.close();resolve(result);};
+    const timer=setTimeout(()=>finish(null),22000);
+    source.onerror=()=>finish(null);
+    source.onmessage=event=>{
+      if(epoch!==cloudEpoch||state.jobs[id]!==job)return finish(null);
+      try{
+        const snapshot=JSON.parse(event.data);
+        if(!['queued','running'].includes(snapshot.status))return finish(snapshot);
+        // savedText is the only field omitted from unchanged chapter snapshots.
+        const savedText=snapshot.savedText??readingProgress.get(job)?.savedText;
+        showJobProgress(id,job,{...snapshot,savedText,accepted:true});
+        if(page!=='edit'||routeId!==id)finish(null);
+      }catch{finish(null);}
+    };
+  });
+}
 function cloudPoll(id){
   const job=state.jobs[id],epoch=cloudEpoch;
   if(!adult||!job)return;
@@ -231,14 +252,19 @@ function cloudPoll(id){
       await flushCloud();
       if(epoch!==cloudEpoch)return;
       const data={id:job.request,kind:job.type,provider:job.provider,style:job.voice,input:job.input,model:job.model,config:job.managed?job.config:'',listener:job.listener||''};
-      let result=job.actor&&job.actor!==cloudAdult?await api('generation/'+job.request):job.attempt?await api('generation/'+job.request+'/retry','POST',{attempt:job.attempt}):await api('generation','POST',data);
+      let result=readingProgress.get(job)?.accepted || (job.actor && job.actor!==cloudAdult)
+        ? await api('generation/'+job.request)
+        : job.attempt ? await api('generation/'+job.request+'/retry','POST',{attempt:job.attempt})
+        : await api('generation','POST',data);
       while(['queued','running'].includes(result.status)){
-        if(result.chapters && state.jobs[id]===job){
-          job.chapters=result.chapters;job.completed=result.completed;
-          if(page==='edit' && routeId===id && $('#job-progress'))$('#job-progress').textContent='已完成 '+result.completed+' / '+result.chapters+' 章';
+        if(epoch!==cloudEpoch||state.jobs[id]!==job)return;
+        showJobProgress(id,job,{...result,accepted:true});
+        if(job.type==='write' && page==='edit' && routeId===id && window.EventSource){
+          const finished=await watchWriting(id,job,epoch);
+          if(finished){result=finished;break;}
         }
-        await new Promise(r=>setTimeout(r,2000));
-        if(epoch!==cloudEpoch)return;
+        await new Promise(r=>setTimeout(r,1000));
+        if(epoch!==cloudEpoch||state.jobs[id]!==job)return;
         result=await api('generation/'+job.request);
       }
       if(epoch!==cloudEpoch||!story(id)||state.jobs[id]?.request!==job.request)return;
@@ -249,20 +275,37 @@ function cloudPoll(id){
         if(job.type==='write'){
           s.text=result.text;
           if(result.title)s.title=result.title;
-          delete s.failedWrite;
+          delete s.failedWrite;delete s.writeError;
         }
         else{s.recordings.unshift({id:result.id,cloud:true,title:job.title,text:job.input,voice:job.voice,provider:job.provider,bytes:result.bytes,duration:result.duration});advanceTour(3,4,id);}
         state.usage.push({at:Date.now(),type:job.type,config:job.config,chars:job.input.length});
-      }else{if(result.retryable)s[job.type==='voice'?'failedVoice':'failedWrite']={...job,completed:result.completed};notify(result.error||'任务未完成，稿件已保留。');}
-      delete state.jobs[id];s.updated=Date.now();save();if(page==='edit'||page==='create')render();
+      }else{
+        if(job.type==='write'){
+          s.writeError=result.error||'写作中断，可重新生成。';
+          if(result.savedText){s.text=result.savedText;s.title=result.title||s.title;}
+        }
+        if(result.retryable)s[job.type==='voice'?'failedVoice':'failedWrite']={...job,completed:result.completed};
+        notify(result.error||'任务未完成，稿件已保留。');
+      }
+      const keepReading=result.status==='done' && job.type==='write' && page==='edit' && routeId===id && $('#job-reader') && window.scrollY>100;
+      delete state.jobs[id];s.updated=Date.now();save();
+      if(keepReading){
+        showJobProgress(id,job,{...result,savedText:result.text,draft:'',currentChapter:''});
+        $('[data-reader-leave]').hidden=true;
+        $('[data-act=finish-reading]').hidden=false;
+      }else if(page==='create'||(page==='edit'&&routeId===id))render();
     }catch(e){
-      if(epoch!==cloudEpoch)return;
+      if(epoch!==cloudEpoch||state.jobs[id]!==job)return;
       const missingRemote=e.status===404&&job.actor&&job.actor!==cloudAdult;
       if(!cloudConflict&&(missingRemote||[400,403,409,413,422,429].includes(e.status))){
-        delete state.jobs[id];save();if(page==='edit')render();
+        if(job.type==='write')story(id).writeError=e.message;
+        delete state.jobs[id];save();if(page==='edit'||page==='create')render();
         if([403,409,422].includes(e.status))await refreshServices().catch(()=>{});
       }
-      else if(!cloudConflict)setTimeout(()=>{if(epoch===cloudEpoch)cloudPoll(id);},8000);
+      else if(!cloudConflict){
+        showJobProgress(id,job,{...readingProgress.get(job),reconnecting:true});
+        setTimeout(()=>{if(epoch===cloudEpoch)cloudPoll(id);},8000);
+      }
       notify(missingRemote?'另一位家长的任务尚未提交，稿件已保留。可选择自己的服务重新生成。':e.message);
     }finally{polling.delete(pollKey);}
   })();

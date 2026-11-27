@@ -1,0 +1,2 @@
+ALTER TABLE generation ADD COLUMN writing_phase TEXT NOT NULL DEFAULT '';
+ALTER TABLE generation ADD COLUMN draft_text TEXT NOT NULL DEFAULT '';

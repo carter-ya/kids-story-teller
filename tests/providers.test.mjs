@@ -87,3 +87,29 @@ test('invalid model titles, incomplete outlines and persistently short timed cha
   const rewrite=await writeStep({kind:'rewrite',input:'将这段改短。'},async()=> '晚安。');
   assert.deepEqual(rewrite,{text:'晚安。'});
 });
+
+test('streamed short drafts decode JSON escapes and reject a truncated final answer',async()=>{
+  const {storyPreview,readCompletionStream}=await import('../server/writing-stream.mjs');
+  const prefix='{"title":"月亮","text":"';
+  assert.equal(storyPreview(prefix+'小兔\\n望向\\u67'),'小兔\n望向');
+  assert.equal(storyPreview(prefix+'小兔\\n望向\\u6708"}'),'小兔\n望向月');
+  const event=JSON.stringify({choices:[{delta:{content:'月亮',reasoning_content:'ignored'},finish_reason:'stop'}]});
+  const raw=new TextEncoder().encode('data: '+event+'\r\n\r\ndata: [DONE]\r\n\r\n');
+  let offset=0;
+  const response=new Response(new ReadableStream({pull(c){
+    if(offset<raw.length)c.enqueue(raw.slice(offset,++offset));else c.close();
+  }}));
+  assert.equal(await readCompletionStream(response,async()=>{}),'月亮');
+  await assert.rejects(readCompletionStream(new Response('data: '+event+'\n\n'),async()=>{}),/未返回完整故事/);
+});
+
+test('an explicitly unsupported streaming option falls back to a normal short story',async()=>{
+  const requests=[];
+  const result=await writeStory({kind:'write',provider:'openai',input:'小兔',model:'fixture'},'fixture',async(_url,request)=>{
+    const body=JSON.parse(request.body);requests.push(body.stream);
+    if(body.stream)return Response.json({error:{message:'stream is not supported'}},{status:400});
+    return Response.json({choices:[{finish_reason:'stop',message:{content:'{"title":"雨天","text":"小兔听见了雨声。"}'}}]});
+  },null,async()=>{});
+  assert.deepEqual(requests,[true,undefined]);
+  assert.equal(result.text,'小兔听见了雨声。');
+});

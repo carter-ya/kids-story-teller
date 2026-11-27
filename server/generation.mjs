@@ -9,10 +9,16 @@ const select=(env,family,id)=>env.DB.prepare('SELECT g.*, f.media_bytes AS famil
 const textBytes = text => new TextEncoder().encode(text).length;
 function publicJob(j) {
   const done = j.status === 'done';
+  const writing=j.kind==='write';
+  const outline=writing && j.outline ? JSON.parse(j.outline) : null;
   return {id:j.id,status:j.status,completed:j.completed||0,chapters:j.chapter_count||0,
     retryable:!!j.input && (j.kind==='voice' || !!j.outline),kind:j.kind,bytes:j.bytes,mediaBytes:j.family_media,
     duration:j.kind==='voice'?Math.max(0,(j.bytes-44)/48000):0,
-    title:done && j.story_title || undefined,text:j.kind!=='voice'&&done?j.result:undefined,
+    phase:writing && !done ? j.writing_phase : undefined,
+    currentChapter:outline?.chapters[j.completed]?.title,
+    savedText:outline ? j.result : undefined,
+    draft:writing && !done ? j.draft_text : undefined,
+    title:(done || outline) && j.story_title || undefined,text:j.kind!=='voice'&&done?j.result:undefined,
     error:j.status==='failed'?(j.write_error || j.result):undefined};
 }
 export async function submit(req,env,session){
@@ -118,7 +124,12 @@ export async function runJob(env,{family,id}){
           .bind(job.input,family,job.config,job.actor,job.input,job.input).run();
         requireValue(charged.meta.changes,429,'已达到写作服务的用量限制。');
       } : null;
-      const step=await writeStory(job,key,fetch,beforeCall);
+      const preview=job.kind==='write' ? async(phase,text)=>{
+        const updated=await env.DB.prepare("UPDATE generation SET writing_phase=?,draft_text=?,touched=unixepoch() WHERE family=? AND id=? AND status='running' AND completed=? AND retry_token=?")
+          .bind(phase,text,family,id,job.completed,job.retry_token).run();
+        requireValue(updated.meta.changes,409,'写作任务已变化。');
+      } : null;
+      const step=await writeStory(job,key,fetch,beforeCall,preview);
       title=step.title || job.story_title;
       const outline=step.outline ? JSON.stringify(step.outline) : job.outline;
       const count=step.outline?.chapters.length || job.chapter_count;
@@ -134,26 +145,65 @@ export async function runJob(env,{family,id}){
         const capacity=step.outline ? writingReserve(job.input,count) : job.reserve+job.bytes;
         const reserve=capacity-stored;
         requireValue(reserve>=0,413,'家庭空间不足。');
-        const saved=await env.DB.prepare("UPDATE generation SET status='queued',remaining_chars=0,story_title=?,outline=?,chapter_count=?,completed=?,result=?,bytes=?,reserve=?,touched=unixepoch() WHERE family=? AND id=? AND status='running' AND completed=? AND EXISTS(SELECT 1 FROM families WHERE id=? AND content_bytes+media_bytes+reserved+?<=100000000)").bind(title,outline,count,completed,result,stored,reserve,family,id,job.completed,family,capacity-job.reserve-job.bytes).run();
+        const saved=await env.DB.prepare("UPDATE generation SET status='queued',writing_phase='',draft_text='',remaining_chars=0,story_title=?,outline=?,chapter_count=?,completed=?,result=?,bytes=?,reserve=?,touched=unixepoch() WHERE family=? AND id=? AND status='running' AND completed=? AND EXISTS(SELECT 1 FROM families WHERE id=? AND content_bytes+media_bytes+reserved+?<=100000000)").bind(title,outline,count,completed,result,stored,reserve,family,id,job.completed,family,capacity-job.reserve-job.bytes).run();
         requireValue(saved.meta.changes,413,'保存分章稿件的空间不足。');
         // Maintenance resubmits queued work if the queue is temporarily unavailable.
         await env.JOBS.send({family,id}).catch(()=>{});
         return;
       }
     }
-    await env.DB.prepare("UPDATE generation SET status='done',input='',reserve=0,bytes=?,result=?,story_title=?,outline='',completed=CASE WHEN chapter_count>0 THEN chapter_count ELSE completed END,touched=unixepoch() WHERE family=? AND id=? AND status='running'").bind(bytes,result,title,family,id).run();
+    await env.DB.prepare("UPDATE generation SET status='done',writing_phase='',draft_text='',input='',reserve=0,bytes=?,result=?,story_title=?,outline='',completed=CASE WHEN chapter_count>0 THEN chapter_count ELSE completed END,touched=unixepoch() WHERE family=? AND id=? AND status='running'").bind(bytes,result,title,family,id).run();
     if(job.kind==='voice')await discardParts(env,family,id);
   }catch(e){
     const message=e instanceof ApiError?e.message:'生成中断。服务商可能已计费，确认后可重新生成。';
-    await env.DB.prepare("UPDATE generation SET status='failed',reserve=0,write_error=?,result=CASE WHEN outline='' THEN ? ELSE result END,touched=unixepoch() WHERE family=? AND id=? AND status='running' AND (kind='voice' OR completed=?)").bind(message,message,family,id,job.completed).run();
+    await env.DB.prepare("UPDATE generation SET status='failed',writing_phase='',draft_text='',reserve=0,write_error=?,result=CASE WHEN outline='' THEN ? ELSE result END,touched=unixepoch() WHERE family=? AND id=? AND status='running' AND (kind='voice' OR (completed=? AND retry_token=?))").bind(message,message,family,id,job.completed,job.retry_token).run();
   }
+}
+// Each subscription starts with a full snapshot. Later events carry saved prose
+// only when another chapter commits. Reconnecting never starts a generation.
+function writingEvents(env,session,initial){
+  const encoder=new TextEncoder();
+  let row=initial,last='',completed=-1,cancelled=false,reads=0;
+  const body=new ReadableStream({
+    async pull(controller){
+      while(!cancelled){
+        if(!row){
+          await new Promise(resolve=>setTimeout(resolve,900));
+          if(cancelled)return;
+          row=await env.DB.prepare(`SELECT g.*, f.media_bytes AS family_media FROM generation g
+            JOIN families f ON f.id=g.family JOIN sessions s ON s.family=g.family
+            WHERE s.token=? AND s.kid IS NULL AND s.expires>unixepoch() AND g.family=? AND g.id=?`)
+            .bind(session.token,session.family,initial.id).first();
+        }
+        if(cancelled)return;
+        if(!row || ++reads>16){controller.close();return;}
+        const snapshot=publicJob(row);
+        const changed=[row.status,row.completed,row.writing_phase,row.draft_text,row.retry_token].join('\n');
+        row=null;
+        if(changed===last)continue;
+        last=changed;
+        if(snapshot.completed===completed && ['queued','running'].includes(snapshot.status))delete snapshot.savedText;
+        completed=snapshot.completed;
+        controller.enqueue(encoder.encode('data: '+JSON.stringify(snapshot)+'\n\n'));
+        if(!['queued','running'].includes(snapshot.status))controller.close();
+        return;
+      }
+    },
+    cancel(){cancelled=true;}
+  });
+  return new Response(body,{headers:{'Content-Type':'text/event-stream','Cache-Control':'private, no-store'}});
 }
 export async function generation(req,env,session,id,audio){
   const family=session.family;
   if(!audio)admin(session);
   requireValue(['GET','HEAD'].includes(req.method),405,'不支持此方法。');
   const j=await select(env,family,id);requireValue(j,404,'找不到任务。');
-  if(!audio)return json(publicJob(j));
+  if(!audio){
+    if(req.method==='GET' && j.kind==='write' && req.headers.get('Accept')==='text/event-stream'){
+      return writingEvents(env,session,j);
+    }
+    return json(publicJob(j));
+  }
   requireValue(j.kind==='voice'&&j.status==='done',404,'找不到录音。');
   if(session.kid){
     const {state}=await shelf(env,family);
@@ -177,7 +227,7 @@ export async function generation(req,env,session,id,audio){
 export async function maintainJobs(env){
   const pending=await env.DB.prepare("SELECT family,id FROM generation WHERE status='queued' AND touched<unixepoch()-60 LIMIT 40").all();
   for(const job of pending.results)await env.JOBS.send(job);
-  await env.DB.prepare("UPDATE generation SET status='failed',reserve=0,write_error='生成超时，服务商可能已计费，请确认后重试。',touched=unixepoch() WHERE status='running' AND touched<unixepoch()-1200").run();
+  await env.DB.prepare("UPDATE generation SET status='failed',writing_phase='',draft_text='',reserve=0,write_error='生成超时，服务商可能已计费，请确认后重试。',touched=unixepoch() WHERE status='running' AND touched<unixepoch()-1200").run();
   const old=await env.DB.prepare("SELECT family,id FROM generation WHERE status IN ('done','failed','deleting') AND touched<unixepoch()-86400 ORDER BY touched LIMIT 30").all();
   for(const j of old.results){
     const row=await shelf(env,j.family),s=row.state;

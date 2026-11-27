@@ -40,7 +40,7 @@ export async function writeStep(job, complete) {
   const outline = job.outline ? JSON.parse(job.outline) : null;
   let minutes = outline?.minutes ?? explicitMinutes(job.input);
   if (minutes === null && mentionsDuration(job.input)) {
-    const intent = readObject(await complete('提取家长要求的整部故事的实际朗读时长。换算为分钟，区间取中点。剧情内经过的时间和孩子年龄不算朗读时长。只输出 JSON 对象 {"minutes":数字}；未要求具体朗读时长则填 null。'));
+    const intent = readObject(await complete('提取家长要求的整部故事的实际朗读时长。换算为分钟，区间取中点。剧情内经过的时间和孩子年龄不算朗读时长。只输出 JSON 对象 {"minutes":数字}；未要求具体朗读时长则填 null。', '', 'intent'));
     if (!intent || (intent.minutes !== null && !Number.isFinite(intent.minutes))) throw invalid();
     minutes = intent.minutes;
   }
@@ -49,7 +49,7 @@ export async function writeStep(job, complete) {
   const naming = '根据实际剧情拟一个简短、有辨识度的书名，建议 4 至 16 个字，最多 24 个字符。';
   if (target?.count > 1 && !job.outline) {
     const plan = readObject(await complete(directions + naming + '先规划全书，输出 JSON 对象 {"title":"书名","chapters":[{"title":"章名","scene":"本章场景、情节及承接"}]}。' +
-      '朗读目标约 ' + target.minutes + ' 分钟，恰好规划 ' + target.count + ' 章。章名不带编号，最多 24 字。每章用一句话规划独立场景，前后连贯，最后一章收束。'));
+      '朗读目标约 ' + target.minutes + ' 分钟，恰好规划 ' + target.count + ' 章。章名不带编号，最多 24 字。每章用一句话规划独立场景，前后连贯，最后一章收束。', '', 'outline'));
     if (!validTitle(plan?.title) || !Array.isArray(plan.chapters) || plan.chapters.length !== target.count ||
       !plan.chapters.every(ch => validTitle(ch?.title) && typeof ch.scene === 'string' && ch.scene.trim() && ch.scene.length <= 300)) throw invalid();
     return {title:plan.title.trim(), outline:{minutes,chapters:plan.chapters.map(ch => ({title:ch.title.trim(), scene:ch.scene.trim()}))}};
@@ -64,7 +64,7 @@ export async function writeStep(job, complete) {
   const length = target ? '本次正文目标约 ' + target.units + ' 个朗读字（英文单词按一个字计），用具体行动和对话展开情节。' : '根据家长要求安排篇幅，未指定时写一篇完整短故事。';
   let feedback = '';
   for (let attempt = 0; attempt < 2; attempt++) {
-    const raw = await complete(directions + shape + length, context + feedback);
+    const raw = await complete(directions + shape + length, context + feedback, attempt ? 'revising' : 'drafting');
     const story = chapter ? {text:raw} : readObject(raw);
     if ((!chapter && !validTitle(story?.title)) || typeof story?.text !== 'string' || !story.text.trim()) throw invalid();
     const text = story.text.trim();
