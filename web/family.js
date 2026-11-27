@@ -8,7 +8,7 @@ function family(){
   if(familyTab==='members'){
     inner='<div class="card"><div class="row between"><h2>我的家人</h2>'+((!cloud||cloudAdult==='owner')?act('member','添加家人','primary'):'')+'</div>'+state.people.map(p=>`<div class="list-row"><span class="avatar">${icon(p.kind==='孩子'?'rabbit':'sun',27)}</span><div class="grow"><strong>${html(p.name)}</strong><div class="meta">${p.id==='owner'?'家庭管理员':p.kind}</div></div>${p.kind==='孩子'?act('kid-prefs','听故事偏好','secondary',p.id):''}${p.id==='owner'||(cloud&&cloudAdult!=='owner')?'':act('remove-member','移除','light',p.id)}</div>`).join('')+'</div>';
     if(cloud){
-      inner+='<div class="card"><h3>成人账户与邀请</h3>'+cloudAccounts.map(a=>'<div class="list-row"><span class="grow">'+html(a.name)+(a.pending?' · 等待加入':' · 成人')+'</span>'+(cloudAdult==='owner'?act('revoke-adult','撤销访问','light',a.id):'')+'</div>').join('')+(cloudAdult==='owner'?act('invite-adult','邀请成人'):'')+(!cloudEmailBound?act('link-email','为旧书架绑定邮箱','light'):'')+'</div>';
+      inner+='<div class="card"><h3>成人账户与邀请</h3>'+cloudAccounts.map(a=>'<div class="list-row"><span class="grow">'+html(a.name)+(a.pending?' · 等待加入':' · 成人')+'</span>'+(cloudAdult==='owner'?act('revoke-adult','撤销访问','light',a.id):'')+'</div>').join('')+(cloudAdult==='owner'?act('invite-adult','邀请成人'):'')+'</div>';
     }
     if(state.invites?.length)inner+='<div class="card"><h3>等待加入</h3>'+state.invites.map(i=>'<div class="list-row"><strong class="grow">'+html(i.name)+'</strong>'+act('accept-invite','预演接受邀请','secondary',i.id)+act('cancel-invite','取消','light',i.id)+'</div>').join('')+'</div>';
   }else if(familyTab==='services')inner=serviceList();

@@ -65,36 +65,27 @@ async function verifiedMailbox(env,body) {
   return email;
 }
 
-async function attachExisting(env,email,claim,session) {
-  requireValue(typeof claim==='string' && /^(story|invite)-[a-f0-9]{64}$/.test(claim),400,'旧凭据或邀请链接格式不正确。');
-  const digest=await hash(claim), replacement=newToken();
-  const [owner,member]=await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO email_accounts SELECT ?,id,'owner' FROM families
-      WHERE pass_hash=? AND (? IS NULL OR id=?)`).bind(email,digest,session?.family||null,session?.family||null),
+async function acceptInvitation(env,email,claim,session) {
+  requireValue(typeof claim==='string' && /^invite-[a-f0-9]{64}$/.test(claim),400,'邀请链接格式不正确。');
+  const digest=await hash(claim);
+  const [joined]=await env.DB.batch([
     env.DB.prepare(`INSERT OR IGNORE INTO email_accounts SELECT ?,a.family,a.id FROM adult_accounts a
-      JOIN families f ON f.id=a.family WHERE a.pass_hash=? AND (? IS NULL OR a.family=?)
-      AND (a.pending=0 OR (a.expires>unixepoch() AND f.profile_count+
-        (SELECT count(*) FROM adult_accounts WHERE family=a.family AND pending=0)<20))`).bind(email,digest,session?.family||null,session?.family||null),
-    env.DB.prepare(`DELETE FROM sessions WHERE (family,adult) IN (
-      SELECT e.family,e.adult FROM email_accounts e JOIN families f ON f.id=e.family
-      WHERE e.email=? AND e.adult='owner' AND f.pass_hash=?
-      UNION ALL SELECT e.family,e.adult FROM email_accounts e JOIN adult_accounts a ON a.family=e.family AND a.id=e.adult
-      WHERE e.email=? AND a.pass_hash=?)`).bind(email,digest,email,digest),
-    env.DB.prepare(`UPDATE families SET pass_hash=?,personal_login=1 WHERE pass_hash=? AND EXISTS
-      (SELECT 1 FROM email_accounts WHERE family=families.id AND adult='owner' AND email=?)`).bind(replacement,digest,email),
-    env.DB.prepare(`UPDATE adult_accounts SET pass_hash=?,pending=0 WHERE pass_hash=? AND EXISTS
-      (SELECT 1 FROM email_accounts WHERE family=adult_accounts.family AND adult=adult_accounts.id AND email=?)`).bind(replacement,digest,email)
+      JOIN families f ON f.id=a.family WHERE a.pass_hash=? AND a.pending=1 AND a.expires>unixepoch()
+      AND (? IS NULL OR a.family=?) AND f.profile_count+
+      (SELECT count(*) FROM adult_accounts WHERE family=a.family AND pending=0)<20`).bind(email,digest,session?.family||null,session?.family||null),
+    env.DB.prepare(`UPDATE adult_accounts SET pass_hash=?,pending=0 WHERE pass_hash=? AND pending=1 AND EXISTS
+      (SELECT 1 FROM email_accounts WHERE family=adult_accounts.family AND adult=adult_accounts.id AND email=?)`).bind(newToken(),digest,email)
   ]);
-  requireValue(owner.meta.changes || member.meta.changes,409,'无法绑定。请确认邮箱尚未加入其他家庭、旧凭据或邀请仍有效，且家庭未满。');
+  requireValue(joined.meta.changes,409,'无法加入。请确认邀请仍有效、家庭未满，且邮箱尚未加入其他家庭。');
 }
 
 export async function verifyEmailCode(req,env,session) {
   const body=await readJson(req,2048);
   const email=await verifiedMailbox(env,body);
-  if(body.claim)await attachExisting(env,email,body.claim,session);
+  if(body.claim)await acceptInvitation(env,email,body.claim,session);
   const lookup=()=>env.DB.prepare('SELECT family,adult FROM email_accounts WHERE email=?').bind(email).first();
   let account=await lookup();
-  if(session)requireValue(account?.family===session.family,403,'请使用本家庭家长的邮箱。旧家庭请先绑定邮箱。');
+  if(session)requireValue(account?.family===session.family,403,'请使用本家庭家长的邮箱。');
   if(!account){
     const family=crypto.randomUUID();
     await env.DB.batch([

@@ -1,5 +1,5 @@
 // The static preview keeps its own local household. Worker sessions always start from the server.
-let cloudEmailBound=false,cloud=false,cloudRevision=0,cloudFamily=null,cloudDirty=false,cloudFlight=null,cloudTimer,cloudConflict=false,cloudMedia=0;
+let cloud=false,cloudRevision=0,cloudFamily=null,cloudDirty=false,cloudFlight=null,cloudTimer,cloudConflict=false,cloudMedia=0;
 let cloudEpoch=0,cloudAdult=null,cloudAccounts=[],cloudServices=[];
 let shelfWrites=Promise.resolve();
 function serializeShelfWrite(action){
@@ -25,7 +25,6 @@ async function cloudBoot(){
   return true;
 }
 async function enterCloud(session){
-  cloudEmailBound=Boolean(session.emailBound);
   clearTimeout(cloudTimer);cloudEpoch++;cloudAdult=null;cloudAccounts=[];cloudServices=[];cloudDirty=false;cloudConflict=false;childChanges.clear();
   state=firstState();signedIn=false;adult=false;cloudFamily=null;cloudMedia=0;cloudRevision=0;
   if(!session.family)return;
@@ -61,22 +60,16 @@ function listenerChange(id,patch){
   if(cloud&&signedIn&&!adult){childChanges.set(id,{...childChanges.get(id),...patch});markCloud();}
 }
 window.addEventListener('beforeunload',event=>{if(cloud&&(cloudDirty||cloudFlight)){event.preventDefault();event.returnValue='';}});
-function cloudLogin(after,unlock=false,invitation='',recover=false){
-  let email='',claim=invitation,id='',readyAt=0;
+function cloudLogin(after,unlock=false,invitation=''){
+  let email='',id='',readyAt=0;
   function addressStep(){
-    const heading=invitation?'加入家庭书架':recover?'绑定旧书架':unlock?'回到家长区':'邮箱登录';
-    const hint=invitation?'用自己的邮箱接受邀请，以后用这个邮箱回到家庭。':recover?'输入旧凭据和你的邮箱，故事和录音都会保留。':unlock?'请用本家庭家长的邮箱接收验证码。':'首次验证会为你创建家庭书架。';
-    const recovery=(!recover&&!invitation)?'<button type="button" class="light" data-recover>找回旧书架</button>':'';
-    dialog(heading,'<div class="mail-note"><span aria-hidden="true">'+icon('envelope',32)+'</span><p>'+hint+'</p></div>'+'<label class="field">家长邮箱<input type="email" name="email" autocomplete="email" inputmode="email" maxlength="254" required value="'+html(email)+'"></label>'+
-      (recover?fieldSecret('claim','旧凭据'):''),
-      recovery+submitBtn('发送验证码'),async(data,form)=>{
+    const heading=invitation?'加入家庭书架':unlock?'回到家长区':'邮箱登录';
+    const hint=invitation?'用自己的邮箱接受邀请，以后用这个邮箱回到家庭。':unlock?'请用本家庭家长的邮箱接收验证码。':'首次验证会为你创建家庭书架。';
+    dialog(heading,'<div class="mail-note"><span aria-hidden="true">'+icon('envelope',32)+'</span><p>'+hint+'</p></div>'+'<label class="field">家长邮箱<input type="email" name="email" autocomplete="email" inputmode="email" maxlength="254" required value="'+html(email)+'"></label>',
+      submitBtn('发送验证码'),async(data,form)=>{
         const button=form.querySelector('[type=submit]');
         if(button.disabled)return;
         email=data.get('email').trim();
-        if(recover){
-          claim=data.get('claim').trim();
-          if(!/^(story|invite)-[a-f0-9]{64}$/.test(claim))throw Error('请填写完整的旧凭据。');
-        }
         button.disabled=true;
         try{
           const response=await api('session/email/send','POST',{email});
@@ -84,8 +77,7 @@ function cloudLogin(after,unlock=false,invitation='',recover=false){
           id=response.id;readyAt=Date.now()+60000;codeStep();
         }finally{button.disabled=false;}
       });
-    const recoverButton=$('#dialog [data-recover]');
-    if(recoverButton)recoverButton.onclick=()=>{email=$('#dialog [name=email]').value;recover=true;addressStep();};
+
   }
   function codeStep(){
     dialog('查收验证码','<div class="mail-note"><span aria-hidden="true">'+icon('mail',32)+'</span><p>已寄到 <strong>'+html(email)+'</strong>，10 分钟内有效。</p></div>'+
@@ -96,7 +88,7 @@ function cloudLogin(after,unlock=false,invitation='',recover=false){
         button.disabled=true;
         try{
           await flushCloud();
-          const session=await api('session/email/verify','POST',{id,code:data.get('code').trim(),claim});
+          const session=await api('session/email/verify','POST',{id,code:data.get('code').trim(),claim:invitation});
           stopPlayback();await enterCloud(session);accepted();resumeJobs();
           if(after)after();else resumeTour();
         }finally{button.disabled=false;}
@@ -142,7 +134,6 @@ async function refreshServices(){
   cloudServices=(await api('configs')).map(c=>({...c,name:providerName(c.provider)+' · '+typeName(c.type),managed:true,preferred:state.configDefaults?.[cloudAdult+':'+c.type]===c.id}));
 }
 async function refreshAccounts(){cloudAccounts=(await api('library')).accounts;}
-on('link-email',()=>cloudLogin(render,false,'',true));
 on('invite-adult',()=>dialog('邀请成人',input('name','照护者昵称','',24)+'<p>对方可通过链接用自己的邮箱加入。链接一天内有效。</p>',submitBtn('生成邀请链接'),async d=>{
   await flushCloud();const r=await api('accounts','POST',{name:d.get('name')});
   await refreshAccounts();

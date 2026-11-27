@@ -160,17 +160,17 @@ test('verified mailbox is required, challenges expire and each code works once',
   assert.equal(db.prepare('SELECT count(*) n FROM families').get().n,1);
 });
 
-test('migrating a legacy account preserves its family and retires the old proof',async()=>{
-  const {db,login,call}=setup();
+test('retiring legacy shelves rejects old credentials and preserves verified households',async()=>{
+  const {db,login}=setup();
   const {hash,newToken}=await import('../server/common.mjs');
   const pass='story-'+newToken();
-  db.prepare('INSERT INTO families(id,pass_hash) VALUES(?,?)').run('original',await hash(pass));
-  const [status,account]=await login('parent@example.test',pass);
-  assert.equal(status,200);assert.equal(account.family,'original');
-  assert.equal((await call('session/login','POST',{pass}))[0],404);
-  assert.equal((await login('other@example.test',pass))[0],409);
-  assert.equal((await login('parent@example.test'))[1].family,'original');
-  assert.equal(db.prepare('SELECT count(*) AS n FROM families').get().n,1);
+  db.prepare('INSERT INTO families(id,pass_hash) VALUES(?,?)').run('legacy',await hash(pass));
+  assert.equal((await login('parent@example.test',pass))[0],400);
+  const [,current]=await login('parent@example.test');
+  db.exec(readFileSync(new URL('../migrations/0007_retire_legacy.sql',import.meta.url),'utf8'));
+  assert.equal(db.prepare('SELECT id FROM families').get().id,current.family);
+  assert.equal(db.prepare('SELECT family FROM erased_families').get().family,'legacy');
+  assert.equal((await login('parent@example.test'))[1].family,current.family);
 });
 
 test('a transport error or sending budget cannot invalidate an already delivered code',async t=>{
