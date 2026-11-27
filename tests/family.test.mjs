@@ -15,12 +15,23 @@ function setup(){
     const bind=(...args)=>({bind,first:()=>stmt.get(...args),run:()=>({meta:stmt.run(...args)}),all:()=>({results:stmt.all(...args)})});
     return bind();
   },batch(stmts){db.exec('BEGIN');try{const r=stmts.map(s=>{const results=s.all().results;return {results,meta:db.prepare('SELECT changes() AS changes').get()}});db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}}};
-  const files=new Map(),env={DB,RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test',JOBS:{send:async()=>{}},VAULT_KEY:'ab'.repeat(32),FILES:{put:(k,v)=>files.set(k,v),get:k=>files.has(k)?{json:()=>JSON.parse(files.get(k))}:null,delete:k=>files.delete(k)}};
+  const files=new Map(),env={DB,TURNSTILE_SITE_KEY:'fixture-public',TURNSTILE_SECRET_KEY:'fixture-private',RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test',JOBS:{send:async()=>{}},VAULT_KEY:'ab'.repeat(32),FILES:{put:(k,v)=>files.set(k,v),get:k=>files.has(k)?{json:()=>JSON.parse(files.get(k))}:null,delete:k=>files.delete(k)}};
   let token='';
   async function call(path,method='GET',body,origin='https://example.test'){
     const res=await worker.fetch(new Request('https://example.test/api/'+path,{method,headers:{origin,cookie:token,'content-type':'application/json'},body:body&&JSON.stringify(body)}),env);
     if(res.headers.has('set-cookie'))token=res.headers.get('set-cookie').split(';')[0];
     return [res.status,await res.json()];
+  }
+  async function sendWithProof(email){
+    const original=globalThis.fetch;
+    const proof=crypto.randomUUID();
+    globalThis.fetch=(url,options)=>{
+      if(url!=='https://challenges.cloudflare.com/turnstile/v0/siteverify')return original(url,options);
+      assert.deepEqual(JSON.parse(options.body),{secret:'fixture-private',response:proof});
+      return Promise.resolve(Response.json({success:true,action:'email_send',hostname:'example.test'}));
+    };
+    try{return await call('session/email/send','POST',{email,turnstileToken:proof})}
+    finally{globalThis.fetch=original;}
   }
   async function receive(email){
     let code;
@@ -33,7 +44,7 @@ function setup(){
         code=mail.text.match(/\d{6}/)[0];
         return Response.json({id:'fixture'});
       };
-      const [status,{id}]=await call('session/email/send','POST',{email});
+      const [status,{id}]=await sendWithProof(email);
       assert.equal(status,200);return {id,code};
     }finally{globalThis.fetch=original;}
   }
@@ -42,7 +53,7 @@ function setup(){
     const challenge=await receive(email);
     return call('session/email/verify','POST',{...challenge,claim});
   }
-  return {call,env,db,receive,login};
+  return {call,env,db,receive,login,sendWithProof};
 }
 test('household sessions, encrypted credentials, quotas and child access',async()=>{
   const {call,env,db,login}=setup();
@@ -139,11 +150,11 @@ test('custom gateway configuration checks public DNS and requires a fresh key fo
 });
 
 test('verified mailbox is required, challenges expire and each code works once',async()=>{
-  const {db,call,receive}=setup();
+  const {db,call,receive,sendWithProof}=setup();
   const verify=challenge=>call('session/email/verify','POST',challenge);
   const email='parent@example.test';
   const challenge=await receive(email);
-  assert.equal((await call('session/email/send','POST',{email}))[0],429);
+  assert.equal((await sendWithProof(email))[0],429);
   const wrong=challenge.code==='000000'?'000001':'000000';
   for(let i=0;i<5;i++)assert.equal((await verify({...challenge,code:wrong}))[0],401);
   assert.equal((await verify(challenge))[0],401);
@@ -156,7 +167,7 @@ test('verified mailbox is required, challenges expire and each code works once',
   const valid=await receive(email);
   const results=await Promise.all([verify(valid),verify(valid)]);
   assert.deepEqual(results.map(r=>r[0]).sort(),[200,401]);
-  assert.equal((await call('session/email/send','POST',{email}))[0],429);
+  assert.equal((await sendWithProof(email))[0],429);
   assert.equal(db.prepare('SELECT count(*) n FROM families').get().n,1);
 });
 
@@ -174,14 +185,58 @@ test('retiring legacy shelves rejects old credentials and preserves verified hou
 });
 
 test('a transport error or sending budget cannot invalidate an already delivered code',async t=>{
-  const {db,env,call,receive}=setup();
+  const {db,env,call,receive,sendWithProof}=setup();
   const email='original@example.test',first=await receive(email);
   const allowResend=()=>db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%'").run();
   allowResend();
   const mail=t.mock.method(globalThis,'fetch',async()=>new Response(null,{status:503}));
-  assert.equal((await call('session/email/send','POST',{email}))[0],503);
+  assert.equal((await sendWithProof(email))[0],503);
   allowResend();env.EMAIL_DAILY_LIMIT='1';
-  assert.equal((await call('session/email/send','POST',{email}))[0],429);
+  assert.equal((await sendWithProof(email))[0],429);
   assert.equal(mail.mock.callCount(),1);
   assert.equal((await call('session/email/verify','POST',first))[0],200);
+});
+
+test('mail requires a single-use Turnstile proof for this origin and action before consuming mail quota',async t=>{
+  const {call,db}=setup();
+  const email='fixture@example.test';
+  const send=token=>call('session/email/send','POST',{email,turnstileToken:token});
+  assert.equal((await send(''))[0],400);
+  let result;
+  const site=t.mock.method(globalThis,'fetch',async url=>{
+    if(url==='https://api.resend.com/emails')return Response.json({id:'fixture'});
+    return Response.json(result);
+  });
+  for(const fields of [{success:false},{hostname:'other.test'},{action:'checkout'}]){
+    result={success:true,hostname:'example.test',action:'email_send',...fields};
+    assert.equal((await send('proof'))[0],403);
+  }
+  assert.equal(db.prepare("SELECT count(*) n FROM email_send_limits WHERE bucket='outbox' OR bucket LIKE 'mail:%'").get().n,0);
+  result={success:true,hostname:'example.test',action:'email_send'};
+  assert.equal((await send('proof'))[0],200);
+  assert.equal((await send('proof'))[0],429);
+  assert.equal(site.mock.calls.filter(c=>c.arguments[0]==='https://api.resend.com/emails').length,1);
+});
+
+test('verification limits guesses across challenges and recovers after the window',async()=>{
+  const {call,db}=setup();
+  const guess=()=>call('session/email/verify','POST',{id:'a'.repeat(64),code:'000000'});
+  for(let i=0;i<12;i++)assert.equal((await guess())[0],401);
+  assert.equal((await guess())[0],429);
+  db.prepare("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'verify-minute:%'").run();
+  assert.equal((await guess())[0],401);
+  db.prepare("UPDATE email_send_limits SET used=60 WHERE bucket LIKE 'verify-hour:%'").run();
+  assert.equal((await guess())[0],429);
+});
+
+test('mailbox daily allowance survives hourly reset and IP allowance spans addresses',async()=>{
+  const {receive,sendWithProof,db}=setup();
+  const email='quota@example.test';
+  await receive(email);
+  db.exec("UPDATE email_send_limits SET expires=0 WHERE bucket LIKE 'cooldown:%' OR bucket LIKE 'mail:%'");
+  db.exec("UPDATE email_send_limits SET used=12 WHERE bucket LIKE 'mail-day:%'");
+  assert.equal((await sendWithProof(email))[0],429);
+  db.exec("UPDATE email_send_limits SET used=20 WHERE bucket LIKE 'ip:%'");
+  assert.equal((await sendWithProof('another@example.test'))[0],429);
+  assert.equal(db.prepare("SELECT used FROM email_send_limits WHERE bucket='outbox'").get().used,1);
 });

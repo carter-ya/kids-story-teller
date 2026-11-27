@@ -21,7 +21,7 @@ async function sessionResponse(req,env,family,kid,old,extra={},adult='owner'){
 }
 export async function apiSession(req,env,path,session){
   if(path==='/api/session'&&req.method==='GET'){
-    return json({cloud:true,family:session?.family||null,kid:session?.kid||null,adult:session?.kid?null:session?.adult});
+    return json({cloud:true,turnstileSiteKey:env.TURNSTILE_SITE_KEY||'',family:session?.family||null,kid:session?.kid||null,adult:session?.kid?null:session?.adult});
   }
   if(req.method!=='POST')return;
   if(path==='/api/session/email/send')return sendEmailCode(req,env);

@@ -48,6 +48,10 @@ try {
     await writeFile(join(process.env.STORY_DESIGN_SHOTS,name+'.jpg'),Buffer.from(shot.data,'base64'));
   }
   await send('Runtime.enable');
+  await send('Page.enable');
+  if(fixture)await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+    window.turnstile={render(el,opts){queueMicrotask(()=>opts.callback('fixture-'+crypto.randomUUID()));return 'fixture-widget'},remove(){}};
+  `});
   if(process.argv.includes('--home-layout')){
     await verifyHomeLayout({send,js,until,site,output:process.env.STORY_SCREENSHOTS});
     assert.deepEqual(errors,[]);
@@ -74,7 +78,8 @@ try {
     const owner='parent@example.test',member='carer@example.test';
     async function verifyMailbox(email){
       await fixture.advanceCooldown(email);
-      await fill('[name=email]',email);await click('#dialog-actions [type=submit]');await exists('[name=code]');
+      await fill('[name=email]',email);await click('#dialog-actions [type=submit]');
+      await until(async()=>{const error=await js("document.querySelector('#dialog-error').textContent");if(error)throw Error(error);return js("!!document.querySelector('[name=code]')")},'mail code entry');
       assert.equal(await js("document.querySelector('[data-resend]').disabled"),true);
       await fill('[name=code]',fixture.code(email));await click('#dialog-actions [type=submit]');
     }
