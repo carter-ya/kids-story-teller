@@ -1,4 +1,5 @@
 // Hold the session request open so layout assertions do not depend on network speed.
+import {verifyRouteLoading} from './route-loading.mjs';
 import assert from 'node:assert/strict';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -33,6 +34,11 @@ export async function verifyHomeLayout({send,js,until,site,output}){
       await until(()=>js(`location.search===${JSON.stringify('?layout='+width+(signed?'m':'g'))}&&typeof finishSession==='function'`),'held session');
       assert.ok(await js("document.querySelector('#app').inert"));
       const selectors=signed?member:guest;
+      if(!signed){
+        assert.ok(await js(`['.postcard','.mail-hero','.sample-shelf .cover','.visitor-steps'].every(s=>{
+          const style=getComputedStyle(document.querySelector(s));return style.borderBottomColor==='rgba(0, 0, 0, 0)'&&style.boxShadow==='none'
+        })`));
+      }
       const before=await geometry(selectors);
       assert.ok(before.length>=12);
       assert.ok(await js("getComputedStyle(document.querySelector('#app .cover')).backgroundImage.includes('linear-gradient')"));
@@ -59,8 +65,19 @@ export async function verifyHomeLayout({send,js,until,site,output}){
       }
       assert.equal(await js("document.querySelector('#home-status')"),null);
       if(width===375||width===1280)await capture((signed?'shelf':'welcome')+'-'+width+'-ready');
+      if(!signed && width===1280){
+        const {x,y}=await js(`(()=>{const b=document.querySelector('.sample-shelf .cover');b.scrollIntoView({block:'center'});
+          const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+        await send('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
+        await until(()=>js("getComputedStyle(document.querySelector('.listen-dot')).backgroundColor==='rgb(167, 64, 41)'"),'hovered play marker');
+        await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x,y});
+        await until(()=>js("getComputedStyle(document.querySelector('.listen-dot')).backgroundColor==='rgb(36, 51, 72)'"),'pressed play marker');
+        await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,x,y});
+        await until(()=>js("location.hash==='#player/fox'&&!!document.querySelector('#seek')"),'card opened player');
+      }
     }
     await send('Page.removeScriptToEvaluateOnNewDocument',{identifier});
   }
+  await verifyRouteLoading({send,js,until,site,capture});
   console.log('PASS · loading and ready geometry at six viewport widths on both home pages');
 }

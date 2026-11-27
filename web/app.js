@@ -166,25 +166,17 @@ document.addEventListener('focusin',e=>{const f=e.target.closest('.secret');if(f
 document.addEventListener('focusout',e=>{const f=e.target.closest('.secret');if(f&&!f.contains(e.relatedTarget)){f.querySelector('input').type='password';f.querySelector('.mascot').innerHTML=icon('fox',38);const b=f.querySelector('[data-eye]');b.innerHTML=icon('eye-off');b.setAttribute('aria-pressed','false');b.setAttribute('aria-label','显示内容');}});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;try{if(f.id==='dialog-form'){await modalSubmit?.(new FormData(f),f)}else await forms.get(f.id)?.(new FormData(f),f)}catch(err){if($('#dialog').open)$('#dialog-error').textContent=err.message;else notify(err.message);}});
 $('#dialog').addEventListener('cancel',e=>{e.preventDefault();closeDialog()});
-window.addEventListener('hashchange',()=>{if(!$('.mast').inert){navigate();openEmailInvitation();}});
-function showHomeLoading(member){
-  if(!$('#app').hasAttribute('inert'))return;
-  frontHeader(!member);
-  if(member){
-    $('#profile').innerHTML='<span class="avatar">'+icon('rabbit',27)+'</span>选择听众';
-    if(!$('#app .family-shelf'))$('#app').replaceChildren(shelfTemplate.cloneNode(true));
-  }else if(!$('#app .welcome')){
-    $('#app').innerHTML=welcome();
-  }
-}
+window.addEventListener('hashchange',()=>{
+  if($('#app').hasAttribute('aria-busy'))selectLoadingPage();
+  else if(!$('.mast').inert){navigate();openEmailInvitation();}
+});
 function finishHomeLoading(){
-  $('#app').removeAttribute('aria-busy');$('#app').inert=false;
+  delete $('#app').dataset.loadingPage;$('#app').removeAttribute('aria-busy');$('#app').inert=false;
   $('.mast').inert=false;$('#home-status')?.remove();
 }
 window.addEventListener('DOMContentLoaded',async()=>{
   try{
-    showHomeLoading(expectShelf);
-    if(!await cloudBoot()){showHomeLoading(signedIn);await load();}
+    if(!await cloudBoot()){selectLoadingPage({member:signedIn,known:true,kid:!adult});await load();}
     document.querySelectorAll('[data-symbol]').forEach(el=>el.innerHTML=icon(el.dataset.symbol));
     resumeJobs();navigate();finishHomeLoading();openEmailInvitation();
   }catch(e){
@@ -193,7 +185,7 @@ window.addEventListener('DOMContentLoaded',async()=>{
     message.setAttribute('role','alert');message.textContent=e.message||'暂时无法打开书架。';
     const retry=document.createElement('button');
     retry.className='primary';retry.textContent='重新打开';retry.onclick=()=>location.reload();
-    app.replaceChildren(message,retry);
+    document.body.classList.remove('night');delete app.dataset.loadingPage;app.replaceChildren(message,retry);
     app.removeAttribute('aria-busy');app.inert=false;$('#home-status')?.remove();
   }
 });

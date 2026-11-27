@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#faf4e6"><title>晚安邮局 · 家庭故事书架</title>
+<style>.choosing-layout #app{visibility:hidden}</style>
+<script>document.documentElement.classList.add('choosing-layout')</script>
 <link rel="icon" href="assets/postmark.svg">
 <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="storybook.css">
 <script defer src="icons.js"></script><script defer src="samples.js"></script><script defer src="picker.js"></script><script defer src="app.js"></script><script defer src="narration.js"></script><script defer src="player.js"></script><script defer src="studio.js"></script><script defer src="family.js"></script><script defer src="welcome.js"></script><script defer src="cloud.js"></script>
 </head>
 <body>
-<header class="mast" inert><div class="mast-inner"><a class="brand" href="#welcome"><img src="assets/postmark.svg" class="brand-mark" alt="">晚安邮局</a><nav aria-label="主导航" hidden><button data-nav="shelf">我的书架</button><button data-nav="create">写故事</button><button data-nav="family">我的家庭</button></nav><div class="guest-links"><button data-act="browse-samples">试听故事</button><button data-act="about-stories">怎么做故事</button></div><button hidden id="profile" class="profile" aria-label="切换听众">我的书架</button><button id="sign-in" data-act="login" class="primary">家长登录</button></div></header>
+<header class="mast" inert><div class="mast-inner"><a class="brand" href="#welcome"><img src="assets/postmark.svg" class="brand-mark" alt="">晚安邮局</a><nav aria-label="主导航" hidden><button data-nav="shelf">我的书架</button><button data-nav="create">写故事</button><button data-nav="family">我的家庭</button></nav><div class="guest-links"><button data-act="browse-samples">试听故事</button><button data-act="about-stories">怎么做故事</button></div><button hidden id="profile" class="profile" aria-label="切换听众"><span class="avatar"></span>选择听众</button><button id="sign-in" data-act="login" class="primary">家长登录</button></div></header>
 <span id="home-status" class="sr-only" role="status">正在打开晚安邮局…</span>
 <main id="app" aria-busy="true" inert>
   <div class="wrap welcome">
@@ -56,24 +58,74 @@
     </section>
   </div>
 </template>
-<template id="guest-cache"></template>
+<template id="player-loading">
+  <div class="wrap listening-room">
+    <div class="room-nav"><i class="ghost text-short"></i></div>
+    <section class="storybook-player"><div class="player-stage"><figure class="story-window"><div class="ghost square"></div><figcaption><i class="ghost text-short"></i></figcaption></figure></div>
+      <div class="radio-face"><i class="ghost text-short"></i><h1><i class="ghost heading"></i></h1><div class="sound-track"><i class="ghost track"></i></div>
+        <div class="transport"><i class="ghost side-key"></i><i class="ghost play-key"></i><i class="ghost side-key"></i></div>
+        <div class="radio-tools"><i class="ghost text-short"></i><i class="ghost text-short"></i></div></div></section>
+    <div class="transcript"><i class="ghost text-short"></i></div>
+  </div>
+</template>
+<template id="create-loading">
+  <div class="wrap section-page writing-desk"><div class="page-title"><i class="ghost heading"></i><i class="ghost line"></i></div>
+    <div class="desk-spread"><section class="card manuscript"><i class="ghost subheading"></i><i class="ghost field-area"></i><i class="ghost action"></i></section>
+    <section class="manuscript-shelf"><i class="ghost subheading"></i><div class="tabs"><i class="ghost line"></i></div><i class="ghost list-entry"></i><i class="ghost list-entry"></i></section></div></div>
+</template>
+<template id="edit-loading">
+  <div class="wrap section-page editing-desk"><i class="ghost text-short"></i><div class="head"><i class="ghost heading"></i></div>
+    <div class="card"><i class="ghost subheading"></i><i class="ghost field-input"></i><i class="ghost sheet"></i><i class="ghost action"></i></div>
+    <div class="card"><i class="ghost subheading"></i><i class="ghost line"></i></div></div>
+</template>
+<template id="family-loading">
+  <div class="wrap section-page household"><div class="page-title"><i class="ghost heading"></i><i class="ghost line"></i></div><div class="tabs"><i class="ghost subheading"></i></div>
+    <div class="card"><i class="ghost subheading"></i><div class="list-row"><i class="ghost side-key"></i><i class="ghost text-short"></i></div>
+    <div class="list-row"><i class="ghost side-key"></i><i class="ghost text-short"></i></div></div><div class="card"><i class="ghost subheading"></i><i class="ghost action"></i></div></div>
+</template>
+<template id="guide-loading">
+  <div class="wrap section-page"><aside class="coach"><i class="ghost side-key"></i><div class="grow"><i class="ghost text-short"></i><i class="ghost subheading"></i><i class="ghost line"></i></div></aside>
+    <div class="card guide-loading-form"><i class="ghost text-short"></i><i class="ghost field-input"></i><i class="ghost action"></i></div></div>
+</template>
+<template id="join-loading">
+  <div class="wrap"><div class="join-loading-form"><i class="ghost subheading"></i><i class="ghost line"></i><i class="ghost field-input"></i><i class="ghost action"></i></div></div>
+</template>
 <script>
-  // Select only a public layout before the first paint. Authorization comes from the session API.
+  const loadingApp=document.getElementById('app');
+  const guestLayout=loadingApp.firstElementChild;
   const shelfTemplate=document.getElementById('shelf-layout').content;
   const sampleTile=shelfTemplate.querySelector('.book');
   sampleTile.after(sampleTile.cloneNode(true),sampleTile.cloneNode(true));
-  let expectShelf=location.hash==='#shelf';
-  try { expectShelf ||= localStorage.getItem('last-home')==='shelf'||sessionStorage.getItem('post-office-login')==='yes'; } catch {}
-  if(expectShelf){
-    const app=document.getElementById('app');
-    document.getElementById('guest-cache').content.append(app.firstElementChild);
-    app.replaceChildren(shelfTemplate.cloneNode(true));
-    document.querySelector('.mast nav').hidden=false;
-    document.querySelector('.guest-links').hidden=true;
-    const profile=document.getElementById('profile');
-    profile.hidden=false;profile.innerHTML='<span class="avatar"></span>选择听众';
-    document.getElementById('sign-in').hidden=true;
+  const privatePages=['create','edit','family','guide'];
+  let hintedMember=location.hash==='#shelf';
+  try { hintedMember ||= localStorage.getItem('last-home')==='shelf'||sessionStorage.getItem('post-office-login')==='yes'; } catch {}
+  let loadingSession={member:hintedMember,known:false};
+  function selectLoadingPage(session=loadingSession){
+    loadingSession=session;
+    const [route,id]=location.hash.slice(1).split('/');
+    const {member,known,kid}=session;
+    let name=member?'shelf':'welcome';
+    if(route==='player' && (!known||member||['fox','rabbit','bear'].includes(id)))name='player';
+    if(privatePages.includes(route) && (!known||member&&!kid))name=route;
+    if(route==='join' && /^invite-[a-f0-9]{64}$/.test(id))name='join';
+    if(!known && route==='shelf')name='shelf';
+    if(loadingApp.dataset.loadingPage!==name){
+      if(name==='welcome'){
+        if(loadingApp.firstElementChild!==guestLayout)loadingApp.replaceChildren(guestLayout);
+      }else{
+        const template=name==='shelf'?shelfTemplate:document.getElementById(name+'-loading').content;
+        loadingApp.replaceChildren(template.cloneNode(true));
+      }
+      loadingApp.dataset.loadingPage=name;
+    }
+    document.body.classList.toggle('night',name==='player');
+    document.querySelector('.mast nav').hidden=!member;
+    document.querySelector('.guest-links').hidden=member||name==='player';
+    document.getElementById('profile').hidden=!member;
+    document.getElementById('sign-in').hidden=member;
   }
+  selectLoadingPage();
+  document.documentElement.classList.remove('choosing-layout');
 </script>
 <aside id="mini" aria-label="迷你播放器" hidden></aside><audio id="audio" preload="metadata"></audio>
 <dialog id="dialog" aria-labelledby="dialog-title"><form id="dialog-form"><div class="dialog-head"><h2 id="dialog-title"></h2><button type="button" class="icon" aria-label="关闭" data-close><span data-symbol="close"></span></button></div><div id="dialog-body"></div><p id="dialog-error" class="error" role="alert"></p><div class="dialog-actions" id="dialog-actions"></div></form></dialog>

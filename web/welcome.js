@@ -8,7 +8,7 @@ function frontHeader(guest = !signedIn) {
   $('#sign-in').hidden = !guest;
 }
 // The public landing page is already laid out in index.html at first paint.
-const welcomeLayout = $('#app .welcome')||$('#guest-cache').content.firstElementChild;
+const welcomeLayout = guestLayout;
 for(const holder of welcomeLayout.querySelectorAll('[data-home-icon]')){
   holder.innerHTML=icon(holder.dataset.homeIcon,Number(holder.dataset.size));
 }
