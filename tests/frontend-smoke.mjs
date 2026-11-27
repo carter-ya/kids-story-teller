@@ -62,6 +62,12 @@ try {
   await until(()=>js('document.querySelector("audio").currentTime>0'),'guest sample playback');
   await exists('#play-button[data-playing=true] .show-pause svg');
   await captureDesign('player');
+  await click('.transcript summary');
+  await captureDesign('letter');
+  await click('[data-act=timer]');await fill('[name=minutes]','17');await click('#dialog-actions [type=submit]');
+  await until(()=>js("document.querySelector('#sleep-label').textContent.includes('暂停')"),'custom sleep timer');
+  await click('[data-act=timer]');assert.equal(await js("document.querySelector('[name=minutes]').value"),'17');
+  await click('[data-act=cancel-sleep]');assert.equal(await js("document.querySelector('.transcript').open"),true);
   assert.equal(await js("Object.keys(state.progress).length"),0);
   await click('[data-act=back-shelf]');await exists('.welcome');
   if(process.argv.includes('--cloud')){

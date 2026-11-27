@@ -92,7 +92,7 @@ function playerPage(){
   const item=listed().find(i=>i.id===routeId);
   if(!item)return '<div class="wrap">'+empty('这篇故事已离开书架','回到书架挑一篇吧。',act('back-shelf','我的书架'))+'</div>';
   loadItem(item,!signedIn);
-  const bedtime=sleepUntil?'定时已开启':'睡眠定时';
+  const bedtime=sleepLabel();
   return `<div class="wrap listening-room"><div class="room-nav">${act('back-shelf',icon('chevron-left',18)+(signedIn?'我的书架':'返回首页'),'room-back')}
     <span>${icon('moon',19)} 听故事</span></div>
     <section class="storybook-player" aria-label="绘本故事播放器">
@@ -102,13 +102,15 @@ function playerPage(){
       <div class="radio-face"><p class="radio-series">${icon('headphones',19)} ${item.recording&&item.audio?'AI 合成朗读':item.audio?'普通话故事录音':'设备中文朗读'}</p>
         <h1>${html(item.title)}</h1>
         <div class="sound-track"><label class="sr-only" for="seek">播放进度</label><input id="seek" type="range" min="0" max="${now.duration}" step=".1" value="${position()}"><div id="clock" class="meta"><span id="elapsed"></span><span id="duration"></span></div></div>
-        <div class="transport"><button data-act="rewind" aria-label="后退 10 秒">${icon('skip-back',26)}<small>10 秒</small></button>
+        <div class="transport"><button data-act="rewind" aria-label="后退 10 秒">${icon('skip-back',32)}<small>后退</small></button>
         <button id="play-button" class="play-disc" data-act="toggle" aria-label="播放"><span class="show-play">${icon('play',32)}</span><span class="show-pause">${icon('pause',32)}</span></button>
-        <button data-act="forward" aria-label="前进 10 秒">${icon('skip-forward',26)}<small>10 秒</small></button></div>
-        <div class="radio-tools">${act(signedIn?'fav':'login',icon(signedIn&&liked(item.id)?'heart-fill':'heart',20)+(signedIn&&liked(item.id)?'已收藏':'收藏'),'radio-tool',item.id)}${act('timer',icon('timer',20)+bedtime,'radio-tool')}</div>
+        <button data-act="forward" aria-label="前进 10 秒">${icon('skip-forward',32)}<small>前进</small></button></div>
+        <div class="radio-tools">${act(signedIn?'fav':'login',icon(signedIn&&liked(item.id)?'heart-fill':'heart',20)+(signedIn&&liked(item.id)?'已收藏':'收藏'),'radio-tool',item.id)}${act('timer',icon('timer',20)+'<span id="sleep-label">'+bedtime+'</span>','radio-tool')}</div>
         <p id="buffering" class="hint" role="status" hidden>${icon('paw',16)} 录音载入中…</p>
       </div></section>
-      <details class="transcript"><summary>${icon('book',22)} 看故事原文</summary><p class="quote">${html(item.text)}</p>${item.audio?'<a class="secondary" href="'+item.audio+'" download>保存这段录音</a>':''}</details>
+      <details class="transcript"><summary><span class="paper-stamp">${icon('rabbit',29)}</span>故事原文<span class="fold-arrow">${icon('chevron-down',21)}</span></summary>
+        <article class="story-letter"><h2>${html(item.title)}</h2><div class="letter-text">${html(item.text)}</div><div class="letter-end" aria-hidden="true">${icon('envelope',24)}</div></article>
+        ${item.audio?'<a class="write-link" href="'+html(item.audio)+'" download>保存这段录音</a>':''}</details>
       ${!signedIn?'<div class="listen-invite"><p>想给孩子写一篇？</p>'+act('login','写自己的故事','secondary')+'</div>':''}
   </div>`;
 }
@@ -116,11 +118,25 @@ pages.set('player',playerPage);
 on('listen',id=>openPlayer(id,true));on('reopen',()=>now&&go('player',now.id));
 on('toggle',()=>isPlaying?pausePlayback():play());on('stop',()=>{stopPlayback();render()});
 on('back-shelf',()=>{if(!signedIn)stopPlayback();go(signedIn?'shelf':'welcome')});on('rewind',()=>seek(position()-10));on('forward',()=>seek(position()+10));
-on('timer',()=>dialog('睡眠定时',pick('minutes','多久后暂停',[['0','关闭定时','sun'],['5','5 分钟','moon'],['15','15 分钟','moon'],['30','30 分钟','moon']],sleepUntil?'15':'0'),submitBtn('保存'),data=>{
-  clearTimeout(sleepTimer);const mins=Number(data.get('minutes'));sleepUntil=mins?Date.now()+mins*60000:0;
-  if(mins)sleepTimer=setTimeout(()=>{pausePlayback();sleepUntil=0;render()},mins*60000);
-  accepted();render();
-}));
+function sleepLabel(){
+  return sleepUntil?new Date(sleepUntil).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'})+' 暂停':'睡眠定时';
+}
+function setSleepMinutes(minutes){
+  clearTimeout(sleepTimer);
+  sleepUntil=minutes?Date.now()+minutes*60000:0;
+  if(minutes)sleepTimer=setTimeout(()=>{pausePlayback();setSleepMinutes(0);},minutes*60000);
+  if($('#sleep-label'))$('#sleep-label').textContent=sleepLabel();
+}
+on('timer',()=>{
+  const left=sleepUntil?Math.max(1,Math.ceil((sleepUntil-Date.now())/60000)):'';
+  dialog('睡眠定时','<label class="field">多少分钟后暂停？<input type="number" name="minutes" inputmode="numeric" min="1" max="1440" step="1" required placeholder="例如 15" value="'+left+'"></label>',
+    (sleepUntil?act('cancel-sleep','关闭定时','light'):'')+submitBtn('设置定时'),data=>{
+      const minutes=Number(data.get('minutes'));
+      if(!Number.isInteger(minutes)||minutes<1||minutes>1440)throw Error('请输入 1 到 1440 之间的整数分钟。');
+      setSleepMinutes(minutes);accepted();
+    });
+});
+on('cancel-sleep',()=>{setSleepMinutes(0);accepted()});
 document.addEventListener('change',e=>{if(e.target.id==='seek')seek(Number(e.target.value))});
 audio.addEventListener('ended',ended);
 for(const event of ['waiting','canplay','playing'])audio.addEventListener(event,syncPlayer);
