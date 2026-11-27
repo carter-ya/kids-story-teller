@@ -2,7 +2,7 @@ import {wakeMaintenance,maintenanceMessage,clean} from './maintenance.mjs';
 import {coverAsset,familyArchive,eraseFamily} from './assets.mjs';
 import {configs,checkConfig} from './configs.mjs';
 import {accounts} from './accounts.mjs';
-import {submit,retryVoice,generation,runJob} from './generation.mjs';
+import {submit,retryGeneration,generation,runJob} from './generation.mjs';
 import {ApiError,json,requireValue} from './common.mjs';
 import {apiSession,apiShelf,credentials,sessionFor} from './family.mjs';
 
@@ -29,7 +29,7 @@ export default {
       if(path==='/api/library')return await apiShelf(req,env,session);
       if(path==='/api/generation')return await submit(req,env,session);
       const retry=/^\/api\/generation\/([a-zA-Z0-9-]{12,64})\/retry$/.exec(path);
-      if(retry)return await retryVoice(req,env,session,retry[1]);
+      if(retry)return await retryGeneration(req,env,session,retry[1]);
       const job=/^\/api\/(generation|audio)\/([a-zA-Z0-9-]{12,64})$/.exec(path);
       if(job)return await generation(req,env,session,job[2],job[1]==='audio');
       const check=/^\/api\/configs\/([\w-]+)\/check$/.exec(path);

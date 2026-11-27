@@ -87,11 +87,11 @@ test('queue redelivery only buys one story and reservation settles once',async t
   assert.equal((await call('generation','POST',job))[0],202);
   assert.equal((await call('generation','POST',{...job,input:'另一个故事'}))[0],409);
   assert.equal(db.prepare('SELECT reserved FROM families').get().reserved,64000);
-  const upstream=t.mock.method(globalThis,'fetch',async()=>Response.json({choices:[{finish_reason:'stop',message:{content:'晚安，小兔。'}}]}));
+  const upstream=t.mock.method(globalThis,'fetch',async()=>Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({title:'月亮摇篮',text:'晚安，小兔。'})}}]}));
   await Promise.all([runJob(env,{family,id:job.id}),runJob(env,{family,id:job.id})]);
-  assert.equal((await call('generation','POST',job))[1].mediaBytes,Buffer.byteLength('晚安，小兔。'));
+  assert.equal((await call('generation','POST',job))[1].mediaBytes,Buffer.byteLength('月亮摇篮晚安，小兔。'));
   assert.equal(upstream.mock.callCount(),1);assert.equal((await call('generation/'+job.id))[1].text,'晚安，小兔。');
-  assert.deepEqual({...db.prepare('SELECT reserved,media_bytes FROM families').get()},{reserved:0,media_bytes:Buffer.byteLength('晚安，小兔。')});
+  assert.deepEqual({...db.prepare('SELECT reserved,media_bytes FROM families').get()},{reserved:0,media_bytes:Buffer.byteLength('月亮摇篮晚安，小兔。')});
   await call('session/logout','POST');await login('other@example.test');assert.equal((await call('generation/'+job.id))[0],404);
 });
 test('private audio enforces publication, withdrawal and byte ranges',async()=>{
@@ -269,4 +269,89 @@ test('mailbox daily allowance survives hourly reset and IP allowance spans addre
   db.exec("UPDATE email_send_limits SET used=20 WHERE bucket LIKE 'ip:%'");
   assert.equal((await sendWithProof('another@example.test'))[0],429);
   assert.equal(db.prepare("SELECT used FROM email_send_limits WHERE bucket='outbox'").get().used,1);
+});
+
+test('a two-hour story keeps its model title and resumes at the first unfinished chapter', async t => {
+  const {call,env,db,login}=setup();
+  const {family}=(await login())[1];
+  await call('credentials/openai','PUT',{key:'fixture-value'});
+  const input='消防车嘟嘟的故事，需要写成播放时长2小时左右的故事，有不同的场景，对于涉及到的一些内容应该有英文单词说明，目标年龄是3岁男孩';
+  const job={id:'two-hour-fire-engine',kind:'write',provider:'openai',model:'fixture',input};
+  const task={family,id:job.id};
+  const chapters=Array.from({length:24},(_,i)=>({title:'嘟嘟的第'+(i+1)+'站',scene:'去第'+(i+1)+'站帮助朋友'}));
+  const calls=[];
+  let interrupt=true;
+  t.mock.method(globalThis,'fetch',async(_url,request)=>{
+    const {messages}=JSON.parse(request.body);
+    assert.ok(messages.some(m=>m.content===input));
+    let content;
+    if(messages[0].content.includes('先规划全书')){
+      calls.push('大纲');
+      assert.match(messages[0].content,/24 章/);
+      content=JSON.stringify({title:'嘟嘟的小城巡游',chapters});
+    }else{
+      const context=messages.at(-1).content;
+      const index=Number(/现在写第 (\d+) 章/.exec(context)[1]);
+      calls.push(index);
+      assert.match(messages[0].content,/900 个朗读字/);
+      if(index>1)assert.ok(context.includes('上一站是'+(index-1)+'。'));
+      if(index===3 && interrupt)return new Response(null,{status:429});
+      content='嘟嘟的车轮轻轻转动。'.repeat(110)+'这是车轮，wheel。上一站是'+index+'。';
+    }
+    return Response.json({choices:[{finish_reason:'stop',message:{content}}]});
+  });
+  assert.equal((await call('generation','POST',job))[0],202);
+  const step=()=>runJob(env,task);
+  for(let i=0;i<4;i++)await step();
+  const read=async()=>(await call('generation/'+job.id))[1];
+  const failed=await read();
+  assert.equal(failed.status,'failed');
+  assert.equal(failed.completed,2);
+  assert.equal(failed.retryable,true);
+  assert.equal(failed.text,undefined);
+  interrupt=false;
+  const retry={attempt:'retry-fire-engine'};
+  assert.equal((await call('generation/'+job.id+'/retry','POST',retry))[0],200);
+  assert.equal((await call('generation/'+job.id+'/retry','POST',retry))[0],200);
+  for(let i=2;i<24;i++)await Promise.all([step(),step()]);
+  await step();
+  const done=await read();
+  assert.equal(done.status,'done',done.error);
+  assert.equal(done.title,'嘟嘟的小城巡游');
+  assert.equal(done.completed,24);
+  assert.equal([...done.text.matchAll(/^第(\d+)章 /gm)].length,24);
+  assert.ok(done.text.endsWith('上一站是24。'));
+  assert.ok(done.text.length>=120*180*0.85);
+  assert.deepEqual(calls,['大纲',1,2,3,...Array.from({length:22},(_,i)=>i+3)]);
+  const familyBytes=db.prepare('SELECT reserved,media_bytes FROM families').get();
+  assert.equal(familyBytes.reserved,0);
+  assert.equal(familyBytes.media_bytes,Buffer.byteLength(done.title+done.text));
+});
+
+test('chapter calls honor managed writing limits and an explicit retry pays for one call',async t=>{
+  const {call,env,db,login}=setup();
+  const {family}=(await login())[1];
+  const config={type:'write',provider:'openai',model:'fixture',key:'mock-key-only',perDay:1};
+  assert.equal((await call('configs/writer','PUT',config))[0],200);
+  const job={id:'chapter-quota-request',kind:'write',config:'writer',provider:'openai',model:'fixture',input:'故事时长10分钟'};
+  const mock=t.mock.method(globalThis,'fetch',async(_url,req)=>{
+    const plan=JSON.parse(req.body).messages[0].content.includes('先规划全书');
+    const content=plan?JSON.stringify({title:'河畔的朋友',chapters:[{title:'听见水声',scene:'到达小河'},{title:'找到小鸭',scene:'小鸭回家'}]}):'小鸭慢慢地游回家。'.repeat(120);
+    return Response.json({choices:[{finish_reason:'stop',message:{content}}]});
+  });
+  assert.equal((await call('generation','POST',job))[0],202);
+  const next=()=>runJob(env,{family,id:job.id});
+  await next();await next();
+  const failed=(await call('generation/'+job.id))[1];
+  assert.equal(failed.status,'failed');assert.match(failed.error,/用量限制/);
+  assert.equal(mock.mock.callCount(),1);
+  const path='generation/'+job.id+'/retry',attempt={attempt:'quota-retry-request'};
+  assert.equal((await call(path,'POST',attempt))[0],429);
+  await call('configs/writer','PUT',{...config,perDay:3});
+  assert.equal((await call(path,'POST',attempt))[0],200);
+  await next();await next();
+  const [status,done]=await call(path,'POST',attempt);
+  assert.equal(status,200);assert.equal(done.status,'done',done.error);
+  assert.equal(mock.mock.callCount(),3);
+  assert.equal(db.prepare('SELECT sum(units) AS units FROM service_usage').get().units,3*job.input.length);
 });

@@ -49,3 +49,41 @@ test('writing rejects incomplete answers and preserves the supplied model',async
   };
   await assert.rejects(writeStory(job,'fictional',mock));
 });
+
+test('timed short drafts retry an undersized body and keep the model title separate',async()=>{
+  const job={provider:'deepseek',kind:'write',input:'松鼠和花生，朗读时长1分钟',model:'fixture'};
+  let calls=0;
+  const result=await writeStory(job,'fixture',async(url,req)=>{
+    const {messages}=JSON.parse(req.body);
+    calls++;
+    if(calls===2)assert.match(messages.at(-1).content,/实际为 2 个朗读字/);
+    const text=calls===1?'松鼠。':'松鼠找花生。'.repeat(36);
+    return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({title:'花生藏在哪',text})}}]});
+  });
+  assert.equal(calls,2);assert.equal(result.title,'花生藏在哪');assert.equal(result.text,'松鼠找花生。'.repeat(36));
+});
+
+test('ambiguous time expressions distinguish listening time from time within the plot',async()=>{
+  const {writeStep}=await import('../server/story-writing.mjs');
+  const derived=await writeStep({kind:'write',input:'消防车嘟嘟，想听一个半钟头'},async prompt=>{
+    if(prompt.includes('提取'))return '{"minutes":90}';
+    assert.match(prompt,/18 章/);
+    return JSON.stringify({title:'灯亮了',chapters:Array.from({length:18},(_,i)=>({title:'小灯'+i,scene:'路过一盏灯'}))});
+  });
+  assert.equal(derived.outline.minutes,90);
+  const short=await writeStep({kind:'write',input:'小狐狸等了两个小时才见到小鸟'},async prompt=>
+    prompt.includes('提取')?'{"minutes":null}':'{"title":"窗前的小鸟","text":"小鸟来了。"}');
+  assert.deepEqual(short,{title:'窗前的小鸟',text:'小鸟来了。'});
+});
+
+test('invalid model titles, incomplete outlines and persistently short timed chapters fail visibly',async()=>{
+  const {writeStep}=await import('../server/story-writing.mjs');
+  await assert.rejects(writeStep({kind:'write',input:'小兔'},async()=>JSON.stringify({title:'兔'.repeat(25),text:'晚安。'})),/格式不完整/);
+  const job={kind:'write',input:'故事时长10分钟'};
+  await assert.rejects(writeStep(job,async()=>'{"title":"嘟嘟","chapters":[]}'),/格式不完整/);
+  let calls=0;
+  await assert.rejects(writeStep({...job,completed:0,result:'',outline:JSON.stringify({minutes:10,chapters:[{title:'嘟嘟出发',scene:'出发'}]})},async()=>{calls++;return '出发了。'}),/未达到/);
+  assert.equal(calls,2);
+  const rewrite=await writeStep({kind:'rewrite',input:'将这段改短。'},async()=> '晚安。');
+  assert.deepEqual(rewrite,{text:'晚安。'});
+});

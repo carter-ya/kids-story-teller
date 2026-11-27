@@ -233,6 +233,10 @@ function cloudPoll(id){
       const data={id:job.request,kind:job.type,provider:job.provider,style:job.voice,input:job.input,model:job.model,config:job.managed?job.config:'',listener:job.listener||''};
       let result=job.actor&&job.actor!==cloudAdult?await api('generation/'+job.request):job.attempt?await api('generation/'+job.request+'/retry','POST',{attempt:job.attempt}):await api('generation','POST',data);
       while(['queued','running'].includes(result.status)){
+        if(result.chapters && state.jobs[id]===job){
+          job.chapters=result.chapters;job.completed=result.completed;
+          if(page==='edit' && routeId===id && $('#job-progress'))$('#job-progress').textContent='已完成 '+result.completed+' / '+result.chapters+' 章';
+        }
         await new Promise(r=>setTimeout(r,2000));
         if(epoch!==cloudEpoch)return;
         result=await api('generation/'+job.request);
@@ -242,10 +246,14 @@ function cloudPoll(id){
       cloudMedia=result.mediaBytes;
       if(result.status==='done'){
         if(job.type==='voice')delete s.failedVoice;
-        if(job.type==='write')s.text=result.text;
+        if(job.type==='write'){
+          s.text=result.text;
+          if(result.title)s.title=result.title;
+          delete s.failedWrite;
+        }
         else{s.recordings.unshift({id:result.id,cloud:true,title:job.title,text:job.input,voice:job.voice,provider:job.provider,bytes:result.bytes,duration:result.duration});advanceTour(3,4,id);}
         state.usage.push({at:Date.now(),type:job.type,config:job.config,chars:job.input.length});
-      }else{if(job.type==='voice'&&result.retryable)s.failedVoice={...job,completed:result.completed};notify(result.error||'任务未完成，稿件已保留。');}
+      }else{if(result.retryable)s[job.type==='voice'?'failedVoice':'failedWrite']={...job,completed:result.completed};notify(result.error||'任务未完成，稿件已保留。');}
       delete state.jobs[id];s.updated=Date.now();save();if(page==='edit'||page==='create')render();
     }catch(e){
       if(epoch!==cloudEpoch)return;
@@ -287,12 +295,16 @@ function playTake(r,art){
   dialog('试听朗读','<p>'+html(r.title)+' · '+html(r.voice)+' · AI 合成</p>',act('toggle','播放 / 暂停')+submitBtn('结束试听'),()=>{stopPlayback();accepted()},stopPlayback);play();
 }
 
-on('retry-voice',()=>{const s=story(routeId),failed=s?.failedVoice;
+function retryDraft(failed){
+  const s=story(routeId);
   if(!failed||failed.actor!==cloudAdult)return;
-  confirmAction('继续上次的配音？','已完成的片段会复用。再次请求剩余片段可能产生服务商费用。','继续配音',()=>{
+  const action=failed.type==='write'?'写作':'配音';
+  confirmAction('继续上次的'+action+'？','已完成的部分会复用，服务商将对后续生成计费。','继续'+action,()=>{
     state.jobs[s.id]={...failed,attempt:uid()+uid()};save();render();cloudPoll(s.id);
   });
-});
+}
+on('retry-voice',()=>retryDraft(story(routeId)?.failedVoice));
+on('retry-write',()=>retryDraft(story(routeId)?.failedWrite));
 on('archive-family',async()=>{
   await flushCloud();
   const link=document.createElement('a');link.href='/api/family/archive';link.download='family-stories.tar';link.click();

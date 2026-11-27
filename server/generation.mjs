@@ -1,3 +1,4 @@
+import {writingReserve} from './story-writing.mjs';
 import {serviceFor,keyForConfig} from './configs.mjs';
 import {admin,ApiError,hash,json,readJson,requireValue,validProvider} from './common.mjs';
 import {getSecret,shelf} from './family.mjs';
@@ -5,7 +6,15 @@ import {hasStyle,narrate,writeStory} from './providers.mjs';
 
 const objectKey=(family,id)=>family+'/audio/'+id+'.wav';
 const select=(env,family,id)=>env.DB.prepare('SELECT g.*, f.media_bytes AS family_media FROM generation g JOIN families f ON f.id=g.family WHERE g.family=? AND g.id=?').bind(family,id).first();
-const publicJob=j=>({id:j.id,status:j.status,completed:j.completed||0,retryable:j.kind==='voice'&&!!j.input,kind:j.kind,bytes:j.bytes,mediaBytes:j.family_media,duration:Math.max(0,(j.bytes-44)/48000),text:j.kind!=='voice'&&j.status==='done'?j.result:undefined,error:j.status==='failed'?j.result:undefined});
+const textBytes = text => new TextEncoder().encode(text).length;
+function publicJob(j) {
+  const done = j.status === 'done';
+  return {id:j.id,status:j.status,completed:j.completed||0,chapters:j.chapter_count||0,
+    retryable:!!j.input && (j.kind==='voice' || !!j.outline),kind:j.kind,bytes:j.bytes,mediaBytes:j.family_media,
+    duration:j.kind==='voice'?Math.max(0,(j.bytes-44)/48000):0,
+    title:done && j.story_title || undefined,text:j.kind!=='voice'&&done?j.result:undefined,
+    error:j.status==='failed'?(j.write_error || j.result):undefined};
+}
 export async function submit(req,env,session){
   admin(session);requireValue(req.method==='POST',405,'请选择生成操作。');
   const {id,kind,provider,model='',style='',input,config='',listener=''}=await readJson(req);
@@ -30,7 +39,7 @@ export async function submit(req,env,session){
     const settings=JSON.stringify({endpoint,age:String(prefs?.age||'').slice(0,24),avoid:String(prefs?.avoid||'').slice(0,160)});
     const budget=await env.DB.prepare('SELECT 100000000-content_bytes-media_bytes-reserved AS free FROM families WHERE id=?').bind(session.family).first();
     // Limit one recording to 32 MB to bound memory on a Workers isolate.
-    const reserve=kind!=='voice'?64000:Math.min(budget.free,32000000);
+    const reserve=kind==='write'?writingReserve(input):kind==='rewrite'?64000:Math.min(budget.free,32000000);
     requireValue(reserve>=64000&&reserve<=budget.free,413,'家庭空间不足。');
     try{await env.DB.prepare('INSERT INTO generation(family,id,fingerprint,kind,provider,model,style,input,reserve,actor,config,settings) SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM families WHERE id=? AND 100000000-content_bytes-media_bytes-reserved>=?) ON CONFLICT(family,id) DO NOTHING').bind(session.family,id,fingerprint,kind,provider,model,style,input,reserve,actor,config,settings,session.family,reserve).run();}catch(e){
       if(String(e.message).includes('service_budget')||String(e.cause?.message).includes('service_budget'))throw new ApiError(429,'本服务已达到用量限制，请查看每日次数、单篇及每月字数。');
@@ -48,19 +57,19 @@ async function discardParts(env,family,id){
   const list=await env.FILES.list({prefix:family+'/parts/'+id+'/'});
   if(list.objects.length)await env.FILES.delete(list.objects.map(p=>p.key));
 }
-export async function retryVoice(req,env,session,id){
+export async function retryGeneration(req,env,session,id){
   admin(session);requireValue(req.method==='POST',405,'不支持此方法。');
   const {attempt}=await readJson(req);
   requireValue(typeof attempt==='string'&&/^[a-zA-Z0-9-]{12,64}$/.test(attempt),400,'无效的重试编号。');
   let job=await select(env,session.family,id);
-  requireValue(job?.actor===session.adult&&job.kind==='voice',403,'不能重试这个任务。');
+  requireValue(job?.actor===session.adult&&(job.kind==='voice'||job.chapter_count>0),403,'不能重试这个任务。');
   if(job.retry_token!==attempt){
     requireValue(job.status==='failed'&&job.input,409,'此任务暂不可重试。');
     if(job.config)await serviceFor(env,session.family,job.config,session.adult);
     const budget=await env.DB.prepare('SELECT 100000000-content_bytes-media_bytes-reserved AS free FROM families WHERE id=?').bind(session.family).first();
-    const reserve=Math.min(32000000-job.bytes,budget.free);requireValue(reserve>=44,413,'空间不足。');
+    const reserve=job.kind==='write'?writingReserve(job.input,job.chapter_count)-job.bytes:Math.min(32000000-job.bytes,budget.free);requireValue(reserve>=44&&reserve<=budget.free,413,'空间不足。');
     try{
-      const r=await env.DB.prepare("UPDATE generation SET retry_token=?,status='queued',reserve=?,remaining_chars=CASE WHEN completed=0 THEN length(input) ELSE remaining_chars END,touched=unixepoch() WHERE family=? AND id=? AND status='failed' AND EXISTS(SELECT 1 FROM families WHERE id=? AND content_bytes+media_bytes+reserved+?<=100000000)").bind(attempt,reserve,session.family,id,session.family,reserve).run();
+      const r=await env.DB.prepare("UPDATE generation SET retry_token=?,status='queued',write_error='',reserve=?,remaining_chars=CASE WHEN kind='write' OR completed=0 THEN length(input) ELSE remaining_chars END,touched=unixepoch() WHERE family=? AND id=? AND status='failed' AND EXISTS(SELECT 1 FROM families WHERE id=? AND content_bytes+media_bytes+reserved+?<=100000000)").bind(attempt,reserve,session.family,id,session.family,reserve).run();
       requireValue(r.meta.changes,409,'任务或空间已变化。');
     }catch(e){if(String(e.message).includes('service_budget'))throw new ApiError(429,'已达到服务用量上限。');throw e;}
     job=await select(env,session.family,id);
@@ -80,7 +89,7 @@ export async function runJob(env,{family,id}){
       requireValue(c.endpoint===job.endpoint&&c.provider===job.provider&&c.model===job.model,409,'排队期间配置已更改，请重新确认。');
       key=await keyForConfig(env,family,c);
     }else key=await getSecret(env,family,job.provider);
-    let bytes=0,result='';
+    let bytes=0,result='',title='';
     if(job.kind==='voice'){
       const checkpoints={
         async load(i){
@@ -96,12 +105,47 @@ export async function runJob(env,{family,id}){
       };
       const blob=await narrate(job,key,fetch,checkpoints);bytes=blob.size;
       await env.FILES.put(objectKey(family,id),blob,{httpMetadata:{contentType:'audio/wav'}});
-    }else{result=await writeStory(job,key);bytes=new TextEncoder().encode(result).length;}
-    await env.DB.prepare("UPDATE generation SET status='done',input='',reserve=0,bytes=?,result=?,touched=unixepoch() WHERE family=? AND id=? AND status='running'").bind(bytes,result,family,id).run();
+    }else{
+      // Submission and explicit retry already reserve one provider call.
+      let prepaid=!job.outline || job.remaining_chars>0;
+      const beforeCall=job.config ? async()=>{
+        if(prepaid){prepaid=false;return;}
+        const charged=await env.DB.prepare(`INSERT INTO service_usage(family,config,units,created)
+          SELECT family,id,length(?),unixepoch() FROM service_configs c WHERE family=? AND id=?
+          AND (owner=? OR shared=1) AND (per_story=0 OR length(?)<=per_story)
+          AND (daily=0 OR daily>(SELECT count(*) FROM service_usage WHERE family=c.family AND config=c.id AND created>=unixepoch('now','start of day')))
+          AND (monthly=0 OR monthly>=length(?)+(SELECT coalesce(sum(units),0) FROM service_usage WHERE family=c.family AND config=c.id AND created>=unixepoch('now','start of month')))`)
+          .bind(job.input,family,job.config,job.actor,job.input,job.input).run();
+        requireValue(charged.meta.changes,429,'已达到写作服务的用量限制。');
+      } : null;
+      const step=await writeStory(job,key,fetch,beforeCall);
+      title=step.title || job.story_title;
+      const outline=step.outline ? JSON.stringify(step.outline) : job.outline;
+      const count=step.outline?.chapters.length || job.chapter_count;
+      const completed=job.completed + (job.outline ? 1 : 0);
+      result=step.text || '';
+      if(job.outline){
+        const chapterTitle=JSON.parse(outline).chapters[job.completed].title;
+        result=(job.result ? job.result+'\n\n' : '')+'第'+completed+'章 '+chapterTitle+'\n\n'+result;
+      }
+      bytes=textBytes(result)+textBytes(title);
+      if(outline && completed<count){
+        const stored=bytes+textBytes(outline);
+        const capacity=step.outline ? writingReserve(job.input,count) : job.reserve+job.bytes;
+        const reserve=capacity-stored;
+        requireValue(reserve>=0,413,'家庭空间不足。');
+        const saved=await env.DB.prepare("UPDATE generation SET status='queued',remaining_chars=0,story_title=?,outline=?,chapter_count=?,completed=?,result=?,bytes=?,reserve=?,touched=unixepoch() WHERE family=? AND id=? AND status='running' AND completed=? AND EXISTS(SELECT 1 FROM families WHERE id=? AND content_bytes+media_bytes+reserved+?<=100000000)").bind(title,outline,count,completed,result,stored,reserve,family,id,job.completed,family,capacity-job.reserve-job.bytes).run();
+        requireValue(saved.meta.changes,413,'保存分章稿件的空间不足。');
+        // Maintenance resubmits queued work if the queue is temporarily unavailable.
+        await env.JOBS.send({family,id}).catch(()=>{});
+        return;
+      }
+    }
+    await env.DB.prepare("UPDATE generation SET status='done',input='',reserve=0,bytes=?,result=?,story_title=?,outline='',completed=CASE WHEN chapter_count>0 THEN chapter_count ELSE completed END,touched=unixepoch() WHERE family=? AND id=? AND status='running'").bind(bytes,result,title,family,id).run();
     if(job.kind==='voice')await discardParts(env,family,id);
   }catch(e){
     const message=e instanceof ApiError?e.message:'生成中断。服务商可能已计费，确认后可重新生成。';
-    await env.DB.prepare("UPDATE generation SET status='failed',reserve=0,result=?,touched=unixepoch() WHERE family=? AND id=? AND status='running'").bind(message,family,id).run();
+    await env.DB.prepare("UPDATE generation SET status='failed',reserve=0,write_error=?,result=CASE WHEN outline='' THEN ? ELSE result END,touched=unixepoch() WHERE family=? AND id=? AND status='running' AND (kind='voice' OR completed=?)").bind(message,message,family,id,job.completed).run();
   }
 }
 export async function generation(req,env,session,id,audio){
@@ -133,11 +177,11 @@ export async function generation(req,env,session,id,audio){
 export async function maintainJobs(env){
   const pending=await env.DB.prepare("SELECT family,id FROM generation WHERE status='queued' AND touched<unixepoch()-60 LIMIT 40").all();
   for(const job of pending.results)await env.JOBS.send(job);
-  await env.DB.prepare("UPDATE generation SET status='failed',reserve=0,result='生成超时，服务商可能已计费，请确认后重试。',touched=unixepoch() WHERE status='running' AND touched<unixepoch()-1200").run();
+  await env.DB.prepare("UPDATE generation SET status='failed',reserve=0,write_error='生成超时，服务商可能已计费，请确认后重试。',touched=unixepoch() WHERE status='running' AND touched<unixepoch()-1200").run();
   const old=await env.DB.prepare("SELECT family,id FROM generation WHERE status IN ('done','failed','deleting') AND touched<unixepoch()-86400 ORDER BY touched LIMIT 30").all();
   for(const j of old.results){
     const row=await shelf(env,j.family),s=row.state;
-    const linked=s&&(Object.values(s.jobs||{}).some(job=>job.request===j.id)||s.stories.some(st=>st.failedVoice?.request===j.id||st.recordings.some(r=>r.id===j.id)));
+    const linked=s&&(Object.values(s.jobs||{}).some(job=>job.request===j.id)||s.stories.some(st=>st.failedVoice?.request===j.id||st.failedWrite?.request===j.id||st.recordings.some(r=>r.id===j.id)));
     if(linked){await env.DB.prepare('UPDATE generation SET touched=unixepoch() WHERE family=? AND id=?').bind(j.family,j.id).run();continue;}
     const claimed=await env.DB.prepare("UPDATE generation SET status='deleting' WHERE family=? AND id=? AND EXISTS(SELECT 1 FROM families WHERE id=? AND revision=?)").bind(j.family,j.id,j.family,row.revision).run();
     if(!claimed.meta.changes)continue;

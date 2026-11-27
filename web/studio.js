@@ -2,8 +2,8 @@ const voices=[['温柔晚安','温柔晚安','moon'],['轻快晨读','轻快晨�
 const covers=SAMPLES.map(s=>[s.id,s.theme,'flower']);
 let importMode=false,libraryQuery='',libraryChild='all';
 const jobTimers=new Map();
-function makeStory(idea, text='',series=''){
-  return {id:uid(),idea,title:idea.slice(0,36)||'我的新故事',text,series,cover:'fox',versions:[],recordings:[],published:null,archived:false,updated:Date.now()};
+function makeStory(idea, text='',series='',title='待拟书名'){
+  return {id:uid(),idea,title,text,series,cover:'fox',versions:[],recordings:[],published:null,archived:false,updated:Date.now()};
 }
 function buildText(s){
   const who=child()?.name||'小朋友';
@@ -18,7 +18,7 @@ function schedule(id){
     jobTimers.delete(id);const s=story(id),j=state.jobs[id];if(!s||!j)return;
     if(j.type==='write'){
       const text=buildText(s);
-      if(used()+bytes(text)<=limitBytes)s.text=text;else notify('家庭空间已满，想法已保留。');
+      if(used()+bytes(text)<=limitBytes){s.title='小狐狸的羽毛来信';s.text=text;}else notify('家庭空间已满，想法已保留。');
     }else if(used()+j.reserve+bytes(s.text)+1024<=limitBytes){
       advanceTour(3,4,id);
       s.recordings.unshift({id:uid(),title:s.title,text:s.text,voice:j.voice,duration:Math.max(5,Math.ceil([...s.text].length/(j.voice==='轻快晨读'?5:4))),bytes:j.reserve});
@@ -58,7 +58,8 @@ function studio(){
   return `<div class="wrap section-page writing-desk">${coach(2)}${title('写故事','记下一个点子，或把写好的稿子带来。')}<div class="desk-spread"><section class="card manuscript"><div class="row between"><h2>${importMode?'导入故事':'今晚想讲什么？'}</h2>${act('mode',importMode?'从一个想法开始':'导入已有故事','light')}</div>
   <form id="new-story">${importMode?input('title','故事标题',!cloud&&sessionStorage.getItem('import-title')||'')+area('body','粘贴正文',!cloud&&sessionStorage.getItem('import-body')||''):area('idea','故事想法',!cloud&&sessionStorage.getItem('story-idea')||'',3)}
   ${!importMode?'<div class="row">'+['小狐狸第一次露营','一只在雨天送信的蜗牛'].map(t=>act('prompt',t,'light',t)).join('')+'</div>':''}
-  <div class="actions">${submitBtn(importMode?'保存并审稿':'写故事')}</div></form></section>
+  ${importMode?'':'<p class="hint">'+(cloud?'可写明目标朗读时长。长故事会分章调用写作模型，按服务商用量计费。':'本地预览使用固定示例。按想法拟书名、写长篇需要云端写作服务。')+'</p>'}
+  <div class="actions">${submitBtn(importMode?'保存并审稿':cloud?'写故事':'生成示例稿')}</div></form></section>
   <section class="manuscript-shelf"><div class="head"><h2>我的稿架</h2></div><div class="tabs">${[['all','全部'],['draft','草稿'],['published','已发布'],['archive','已归档']].map(([v,t])=>act('studio-filter',t,'tab '+(studioTab===v?'on':''),v)).join('')}</div>
   <details><summary>查找作品</summary><form id="library-search">${input('query','标题、主题或系列',libraryQuery)}${pick('childfilter','发布给',[['all','全部听众'],...children().map(k=>[k.id,k.name])],libraryChild)}${submitBtn('查找')}</form></details>
   <div class="draft-list">${library()}</div></section></div></div>`;
@@ -70,23 +71,32 @@ forms.set('new-story',data=>{
   if(state.stories.length>=100){quotaMessage('书架已放满 100 个故事。');return;}
   if(used()+bytes(idea)+bytes(text)+1024>limitBytes){quotaMessage('家庭内容已达到 100 MB。');return;}
   const create=()=>{
-    const s=makeStory(idea,text);state.stories.unshift(s);advanceTour(2,3,s.id);save();
+    const s=makeStory(idea,text,'',importMode?idea:undefined);state.stories.unshift(s);advanceTour(2,3,s.id);save();
     if(importMode){sessionStorage.removeItem('import-title');sessionStorage.removeItem('import-body');go('edit',s.id);}
     else{sessionStorage.removeItem('story-idea');beginJob(s,'write');}
   };
   if(importMode)create();else withService('write',create);
 });
+function manuscriptChapters(text){
+  const headings=[...text.matchAll(/^第[0-9]+章[^\S\n]+([^\n]+)$/gm)];
+  return headings.map((match,i)=>({
+    title:match[0].trim(),
+    text:text.slice(match.index+match[0].length,headings[i+1]?.index).trim()
+  }));
+}
 function editor(){
   const s=story(routeId);if(!s)return '<div class="wrap">'+empty('找不到这篇作品','回稿架挑另一篇。',act('create','我的稿架'))+'</div>';
   const job=state.jobs[s.id];
-  if(job)return `<div class="wrap section-page"><div class="card wait" role="status"><span class="bob" aria-hidden="true">${icon('fox',50)}${icon(job.type==='write'?'pen':'headphones',28)}</span><h2>${jobLabel(job)}</h2><p>当前稿件已保存，可以稍后回来。</p><div class="bone"></div>${act('create','回稿架')}</div></div>`;
+  if(job)return `<div class="wrap section-page"><div class="card wait" role="status"><span class="bob" aria-hidden="true">${icon('fox',50)}${icon(job.type==='write'?'pen':'headphones',28)}</span><h2>${jobLabel(job)}</h2><p id="job-progress">${job.chapters?'已完成 '+Number(job.completed)+' / '+Number(job.chapters)+' 章':'当前稿件已保存，可以稍后回来。'}</p><div class="bone"></div>${act('create','回稿架')}</div></div>`;
+  const chapters=cloud?manuscriptChapters(s.text):[];
   return `<div class="wrap section-page editing-desk">${state.tourV2?.story===s.id?coach(3)+coach(4):''}${act('create','我的稿架','light')}<div class="head"><h1 style="font-size:2.2rem">改稿与录音</h1><span class="pill">${s.archived?'已归档':s.published?'已发布 · 可继续改稿':'草稿'}</span></div>
   <div class="card"><form id="edit-form">${input('title','标题',s.title)}${area('text','故事正文',s.text,8)}
   <small id="save-state">${cloud?'草稿自动同步到家庭书架':'草稿自动保存于当前浏览器'}</small><details><summary>封面、系列与版本</summary>${pick('cover','封面主题',s.cover?.startsWith('cover-')?[...covers,[s.cover,'我的图片','flower']]:covers,s.cover)}${cloud?'<label>上传自己的封面<input type="file" accept="image/png,image/jpeg,image/webp" id="cover-upload"></label>':''}${input('series','系列',s.series)}
   <div class="check-list">${s.versions.map((v,i)=>act('restore','恢复「'+html(v.title)+'」 · '+new Date(v.at).toLocaleTimeString(),'secondary',String(i))).join('')||'保存版本后可在这里恢复。'}</div></details>
-  <div class="actions">${submitBtn('保存版本')}${act('rewrite','改写一段','secondary')}${!s.text?act('regen','生成草稿','secondary'):''}</div></form></div>
-  <div class="card"><h2>给故事配音</h2><p class="hint">${cloud?'用选好的声音先试读一句，听好后再合成整篇。':'本地体验使用设备中文朗读。'}</p>
-  ${pick('voice','声音',voices,state.prefs[state.kid]?.voice||voices[0][0])}<div class="actions">${act('short-preview','试听一句')}${act('record','生成朗读','primary')}</div>
+  <div class="actions">${submitBtn('保存版本')}${act('rewrite','改写一段','secondary')}${s.failedWrite&&s.failedWrite.actor===cloudAdult?act('retry-write','继续写作（已完成 '+Number(s.failedWrite.completed)+' 章）','primary'):!s.text?act('regen','生成草稿','secondary'):''}</div></form></div>
+  <div class="card"><h2>给故事配音</h2><p class="hint">${chapters.length?'可选一章建立独立配音稿，试听后生成这一章的朗读。':cloud?'用选好的声音先试读一句，听好后再合成整篇。':'本地体验使用设备中文朗读。'}</p>
+  ${pick('voice','声音',voices,state.prefs[state.kid]?.voice||voices[0][0])}<div class="actions">${act('short-preview','试听一句')}${!chapters.length||s.text.length<=4000?act('record','生成朗读','primary'):''}</div>
+  ${chapters.length?pick('record-chapter','按章配音',chapters.map((ch,i)=>[String(i),ch.title]),'0')+act('open-chapter','打开本章配音稿','secondary'):''}
   ${cloud&&s.failedVoice&&s.failedVoice.actor===cloudAdult?'<p>上次已保存 '+Number(s.failedVoice.completed||0)+' 段。</p>'+act('retry-voice','继续生成剩余片段'):''}
   ${s.recordings.map(r=>`<div class="list-row"><div class="grow"><strong>${html(r.title)}</strong><div class="meta">${html(r.voice)} · 约 ${time(r.duration)}${s.published?.rid===r.id?' · 已发布':''}</div></div>${act('audition','试听','secondary',r.id)}${act('publish','放进书架','primary',r.id)}${r.cloud?'<a class="secondary" download="story.wav" href="/api/audio/'+encodeURIComponent(r.id)+'">下载音频</a>':''}${act('drop-record','删除录音','light',r.id)}</div>`).join('')}</div>
   <details class="card"><summary>作品管理</summary><div class="actions">${act('sequel','写下一集')}${act('export','导出文本')}${act('archive',s.archived?'移出归档':'归档')}${s.published?act('unpublish','撤回发布'):''}${act('delete-story','删除作品','danger')}</div></details></div>`;
@@ -130,6 +140,20 @@ function rewriteParagraph(){
     });
   });
 }
+on('open-chapter',()=>{
+  const parent=story(routeId);
+  const chapter=manuscriptChapters(parent.text)[Number($('[name=record-chapter]').value)];
+  if(!chapter?.text){notify('这一章还没有正文。');return;}
+  let draft=state.stories.find(s=>s.parentStory===parent.id && s.chapterHeading===chapter.title);
+  if(!draft){
+    if(state.stories.length>=100){quotaMessage('书架已放满 100 个故事。');return;}
+    draft=makeStory(chapter.title,chapter.text,parent.title,chapter.title);
+    Object.assign(draft,{cover:parent.cover,parentStory:parent.id,chapterHeading:chapter.title});
+    if(used()+bytes(JSON.stringify(draft))>limitBytes){quotaMessage('家庭空间不足。');return;}
+    state.stories.unshift(draft);save();
+  }
+  go('edit',draft.id);
+});
 on('rewrite',()=>cloud?withService('write',rewriteParagraph):rewriteParagraph());
 on('short-preview',()=>cloud?withService('voice',()=>confirmAction('试听故事开头？','服务商将按试听文本计费。','生成试听',()=>cloudPreview(story(routeId),$('[name=voice]').value))):sayPreview(story(routeId).text.split(/[。！？]/)[0]||'晚安，愿你做个好梦。',$('[name=voice]').value));
 on('record',()=>{const s=story(routeId),v=$('[name=voice]').value;if(!s.text.trim()||!s.title.trim()){notify('请先补全标题和正文。');return;}
