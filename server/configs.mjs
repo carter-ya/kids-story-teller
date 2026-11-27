@@ -1,4 +1,4 @@
-import {admin,json,readJson,requireValue,validProvider} from './common.mjs';
+import {admin,ApiError,json,readJson,requireValue,validProvider} from './common.mjs';
 import {encrypt,decrypt} from './family.mjs';
 
 export function baseURL(provider){return 'https://api.'+provider+'.com/v1';}
@@ -69,12 +69,44 @@ export async function checkConfig(req,env,session,id){
   admin(session);requireValue(req.method==='POST',405,'不支持此方法。');
   const c=await serviceFor(env,session.family,id,session.adult);
   const key=await keyForConfig(env,session.family,c);
-  const response=await fetch(c.endpoint+'/models',{headers:{Authorization:'Bearer '+key},redirect:'manual',signal:AbortSignal.timeout(12000)});
-  requireValue(![401,403].includes(response.status),422,'密钥无效或无权读取模型列表。');
-  requireValue(response.status!==402,422,'服务商账户余额不足。');
-  requireValue(response.status!==429,429,'已达到服务商用量或并发限制。');
-  requireValue(response.ok,422,'无法读取模型列表，请核对服务地址及兼容协议。');
-  const answer=await response.json();
-  if(c.type==='write')requireValue(answer.data?.some(m=>m.id===c.model),422,'密钥可用，但模型列表中没有所选写作模型。');
-  return json({message:c.type==='write'?'已连接，密钥可访问所选模型。':'已连接模型服务。可在故事工作台试听一句，验证配音权限。'});
+  const host=new URL(c.endpoint).host;
+  const use=c.type==='voice'?'配音':'写作';
+  const signal=AbortSignal.timeout(12000);
+  async function lookup(path){
+    try{return await fetch(c.endpoint+path,{headers:{Authorization:'Bearer '+key,Accept:'application/json'},redirect:'manual',signal});}
+    catch{throw new ApiError(502,'连接 '+host+' 超时或网络不可用，请稍后重试。');}
+  }
+  async function checkDenial(response){
+    const prefix=host+'（HTTP '+response.status+'）';
+    if(response.status===401||response.status===403){
+      const info=await readJson(response,8192).catch(()=>null);
+      // Some gateways echo credentials in their messages. Only use known codes.
+      const codes=[info?.error?.code,info?.error?.type,info?.code];
+      if(codes.includes('unsupported_country_region_territory'))throw new ApiError(422,prefix+'：服务商拒绝了来自当前地区的请求。');
+      if(response.status!==401 && codes.includes('invalid_api_key'))throw new ApiError(422,prefix+'：服务商报告此配置的 API Key 无效，请核对签发平台和服务地址。');
+    }
+    if(response.status===401)throw new ApiError(422,prefix+'：服务商未接受这条'+use+'配置的身份凭据。请核对 API 根地址和密钥是否来自同一平台。');
+    if(response.status===402)throw new ApiError(422,prefix+'：服务商账户余额不足。');
+    if(response.status===429)throw new ApiError(429,prefix+'：已达到服务商用量或并发限制。');
+  }
+  const response=await lookup('/models');
+  if(!response.ok){
+    await checkDenial(response);
+    const prefix=host+'（HTTP '+response.status+'）';
+    if(![403,404,405].includes(response.status))throw new ApiError(422,prefix+'：无法读取模型列表，请核对服务地址及兼容协议。');
+    if(c.type==='write' && c.model!=='.' && c.model!=='..'){
+      const model=await lookup('/models/'+encodeURIComponent(c.model));
+      if(model.ok && (await model.json().catch(()=>null))?.id===c.model){
+        return json({message:host+' 已返回写作模型 '+c.model+' 的资料。'});
+      }
+      if(!model.ok)await checkDenial(model);
+    }
+    const reason=response.status===403?'服务商拒绝读取模型列表':'此地址未提供模型列表';
+    const next=c.type==='voice'?'可在工作台试听一句验证配音权限。':'请核对服务地址和模型查询权限。';
+    throw new ApiError(422,prefix+'：'+reason+'，此次检查未验证'+use+'权限。'+next);
+  }
+  const answer=await response.json().catch(()=>null);
+  requireValue(Array.isArray(answer?.data),422,host+' 返回了无法识别的模型列表，请核对 API 根地址。');
+  if(c.type==='write')requireValue(answer.data.some(m=>m?.id===c.model),422,host+' 的模型列表中没有 '+c.model+'，请核对模型名称及权限。');
+  return json({message:c.type==='write'?host+' 的模型列表包含 '+c.model+'。':host+' 的模型列表可读取。可在工作台试听一句验证配音权限。'});
 }

@@ -180,6 +180,14 @@ try {
     await pressAt(keyPicker);await pressAt(savedKey);
     await click('#dialog-actions [type=submit]');
     await until(()=>js("cloudServices.some(s=>s.type==='voice') && !document.querySelector('#dialog').open"),'saved narration with writing key');
+    const voiceId=await js("cloudServices.find(s=>s.type==='voice').id");
+    const voiceCheck='[data-act=check-service][data-id="'+voiceId+'"]';
+    await click(voiceCheck);
+    await until(()=>js(`document.querySelector(${JSON.stringify(voiceCheck)}).closest('.list-row').querySelector('[role=status]').textContent.includes('HTTP 403')`),'narration permission result');
+    if(process.env.STORY_DESIGN_SHOTS){
+      await js(`document.querySelector(${JSON.stringify(voiceCheck)}).closest('.list-row').scrollIntoView({block:'center'})`);
+      await captureDesign('connection-check');
+    }
     await click('[data-act=family-tab][data-id=members]');await click('[data-act=lock]');await exists('.hero-art');
     assert.equal(await js("adult"),false);
     assert.equal(await js("state.stories.length"),0);
