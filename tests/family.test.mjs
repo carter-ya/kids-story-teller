@@ -163,6 +163,39 @@ test('a parent can reuse a saved writing key for narration at the same provider 
   });
   assert.equal((await call('configs/voice/check','POST',{}))[0],200);
 });
+test('connection checks use the replacement key and distinguish rejected credentials from listing restrictions',async t=>{
+  const {call,login}=setup();
+  await login();
+  const writer={provider:'openai',type:'write',model:'writer'};
+  await call('configs/write','PUT',{...writer,key:'fixture-old'});
+  await call('configs/write','PUT',{...writer,key:'fixture-replacement'});
+  const requests=[];
+  let status=401,code='invalid_api_key',modelStatus=200;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(options.headers.Authorization,'Bearer fixture-replacement');
+    requests.push(new URL(url).pathname);
+    if(url.endsWith('/models/writer'))return Response.json({id:'writer'},{status:modelStatus});
+    return Response.json({error:{code,message:'private upstream explanation fixture-replacement'}},{status});
+  });
+  const check=()=>call('configs/write/check','POST',{});
+  const rejected=await check();
+  assert.equal(rejected[0],422);
+  assert.match(rejected[1].error,/api.openai.com.*HTTP 401.*身份凭据/);
+  assert.ok(!rejected[1].error.includes('fixture-replacement'));
+  assert.deepEqual(requests,['/v1/models']);
+  status=403;code='unsupported_country_region_territory';requests.length=0;
+  assert.match((await check())[1].error,/HTTP 403.*地区/);
+  assert.deepEqual(requests,['/v1/models']);
+  code='insufficient_permissions';requests.length=0;
+  assert.match((await check())[1].message,/writer/);
+  assert.deepEqual(requests,['/v1/models','/v1/models/writer']);
+  modelStatus=404;
+  assert.match((await check())[1].error,/HTTP 403.*拒绝读取模型列表.*未验证写作权限/);
+  await call('configs/voice','PUT',{provider:'openai',type:'voice',model:'',keyFrom:'write'});
+  requests.length=0;
+  assert.match((await call('configs/voice/check','POST',{}))[1].error,/HTTP 403.*试听/);
+  assert.deepEqual(requests,['/v1/models']);
+});
 test('custom gateway configuration checks public DNS and requires a fresh key for changes',async t=>{
   const {call,env,login}=setup();env.PUBLIC_PROVIDER_GATEWAYS='1';
   await login();

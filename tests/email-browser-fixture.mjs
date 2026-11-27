@@ -27,6 +27,7 @@ export async function emailBrowserFixture(){
         const {secret,response}=await request.json();
         return Response.json({success:secret==='fixture-private' && response.startsWith('fixture-'),action:'email_send',hostname:'127.0.0.1'});
       }
+      if(request.url==='https://api.openai.com/v1/models')return Response.json({error:{code:'insufficient_permissions'}},{status:403});
       if(request.url==='https://api.openai.com/v1/chat/completions'){
         const {messages,stream}=await request.json();
         if(stream && messages.at(-1).content.includes('现在写第 3 章')){

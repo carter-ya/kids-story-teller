@@ -208,7 +208,10 @@ function cloudConfig(type,c,after){
 }
 on('check-service',async(id,b)=>{
   b.disabled=true;b.innerHTML=icon('paw')+' 正在连接';
-  try{notify((await api('configs/'+id+'/check','POST',{})).message);}
+  const result=b.closest('.list-row').querySelector('[data-service-result]');
+  result.textContent='';
+  try{result.textContent=(await api('configs/'+id+'/check','POST',{})).message;}
+  catch(e){result.textContent=e.message;}
   finally{b.disabled=false;b.textContent='检查连接';}
 });
 on('service-default',async id=>{const c=cloudServices.find(c=>c.id===id);(state.configDefaults||={})[cloudAdult+':'+c.type]=id;await refreshServices();save();render();});
