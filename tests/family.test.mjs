@@ -302,8 +302,14 @@ test('a two-hour story keeps its model title and resumes at the first unfinished
   });
   assert.equal((await call('generation','POST',job))[0],202);
   const step=()=>runJob(env,task);
-  for(let i=0;i<4;i++)await step();
   const read=async()=>(await call('generation/'+job.id))[1];
+  await step();await step();
+  const queued=await read();
+  assert.equal(queued.status,'queued');
+  assert.equal(queued.currentChapter,chapters[1].title);
+  assert.match(queued.savedText,/第1章/);
+  assert.equal(queued.draft,'');
+  await step();await step();
   const failed=await read();
   assert.equal(failed.status,'failed');
   assert.equal(failed.completed,2);

@@ -233,7 +233,9 @@ function watchWriting(id,job,epoch){
       try{
         const snapshot=JSON.parse(event.data);
         if(!['queued','running'].includes(snapshot.status))return finish(snapshot);
-        showJobProgress(id,job,{...readingProgress.get(job),...snapshot,reconnecting:false});
+        // savedText is the only field omitted from unchanged chapter snapshots.
+        const savedText=snapshot.savedText??readingProgress.get(job)?.savedText;
+        showJobProgress(id,job,{...snapshot,savedText,accepted:true});
         if(page!=='edit'||routeId!==id)finish(null);
       }catch{finish(null);}
     };

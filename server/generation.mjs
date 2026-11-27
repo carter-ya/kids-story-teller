@@ -17,7 +17,7 @@ function publicJob(j) {
     phase:writing && !done ? j.writing_phase : undefined,
     currentChapter:outline?.chapters[j.completed]?.title,
     savedText:outline ? j.result : undefined,
-    draft:writing && j.status==='running' ? j.draft_text : undefined,
+    draft:writing && !done ? j.draft_text : undefined,
     title:(done || outline) && j.story_title || undefined,text:j.kind!=='voice'&&done?j.result:undefined,
     error:j.status==='failed'?(j.write_error || j.result):undefined};
 }
