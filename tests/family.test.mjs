@@ -133,6 +133,36 @@ test('one-time adult invitation, individual configuration permissions and durabl
   await call('accounts/'+member.adult,'DELETE');
   assert.equal((await login('member@example.test'))[0],403);
 });
+test('a parent can reuse a saved writing key for narration at the same provider and endpoint',async t=>{
+  const {call,login,env}=setup();
+  await login();
+  const endpoint='https://gateway.example/v1';
+  env.PROVIDER_ORIGINS='https://gateway.example';
+  const writer={provider:'openai',endpoint,type:'write',model:'writer',key:'saved-fixture-key',share:true};
+  assert.equal((await call('configs/writer','PUT',writer))[0],200);
+  const voice={provider:'openai',endpoint:endpoint+'/',type:'voice',model:'',keyFrom:'writer'};
+  assert.equal((await call('configs/voice','PUT',{...voice,provider:'deepseek'}))[0],400);
+  assert.equal((await call('configs/voice','PUT',{...voice,endpoint:endpoint+'/other'}))[0],400);
+  assert.equal((await call('configs/voice','PUT',voice))[0],200);
+  const list=(await call('configs'))[1];
+  assert.ok(list.every(c=>!('encrypted' in c)&&!('key' in c)));
+  assert.equal(list.find(c=>c.id==='voice').share,0);
+
+  const invitation=(await call('accounts','POST',{name:'照护者'}))[1];
+  await login('member@example.test',invitation.code);
+  assert.equal((await call('configs/member-voice','PUT',voice))[0],400);
+  await call('session/logout','POST');await login('other@example.test');
+  assert.equal((await call('configs/other-voice','PUT',voice))[0],400);
+
+  await call('session/logout','POST');await login();
+  assert.equal((await call('configs/writer','DELETE'))[0],200);
+  t.mock.method(globalThis,'fetch',async(url,{headers})=>{
+    assert.equal(url,endpoint+'/models');
+    assert.equal(headers.Authorization,'Bearer '+writer.key);
+    return Response.json({data:[]});
+  });
+  assert.equal((await call('configs/voice/check','POST',{}))[0],200);
+});
 test('custom gateway configuration checks public DNS and requires a fresh key for changes',async t=>{
   const {call,env,login}=setup();env.PUBLIC_PROVIDER_GATEWAYS='1';
   await login();

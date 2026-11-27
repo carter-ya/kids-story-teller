@@ -44,7 +44,12 @@ export async function configs(req,env,session,id){
   const limits=[c.perDay,c.perMonth,c.perStory].map(x=>Number(x||0));
   requireValue(limits.every(x=>Number.isSafeInteger(x)&&x>=0&&x<=1000000000),400,'用量上限须为非负整数。');
   let encrypted=existing?.encrypted;
-  if(c.key){
+  if(c.keyFrom!==undefined){
+    requireValue(!c.key&&typeof c.keyFrom==='string'&&/^[\w-]{1,96}$/.test(c.keyFrom),400,'请选择一个已保存的密钥。');
+    const source=await env.DB.prepare('SELECT id, endpoint, encrypted FROM service_configs WHERE family=? AND owner=? AND id=? AND provider=? AND endpoint=?').bind(family,adult,c.keyFrom,c.provider,endpoint).first();
+    requireValue(source,400,'所选密钥已不可用，请选择本人在同一服务地址保存的配置。');
+    encrypted=await encrypt(env,family,id+'@'+endpoint,await keyForConfig(env,family,source));
+  }else if(c.key){
     requireValue(typeof c.key==='string'&&/^[!-~]{8,512}$/.test(c.key),400,'请填写完整密钥。');
     encrypted=await encrypt(env,family,id+'@'+endpoint,c.key);
   }else requireValue(encrypted&&existing.endpoint===endpoint&&existing.provider===c.provider,400,'首次连接或更换地址时请重新输入密钥。');

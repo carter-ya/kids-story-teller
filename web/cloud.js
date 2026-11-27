@@ -158,23 +158,51 @@ on('revoke-adult',id=>confirmAction('撤销这位成人的访问？','该成人�
   await api('accounts/'+id,'DELETE');await refreshAccounts();await refreshServices();render();
 }));
 function cloudConfig(type,c,after){
-  const p=c?.provider||'openai';
+  const owned=cloudServices.filter(service=>service.owner===cloudAdult);
+  function suggestedSource(services){
+    return services.find(s=>s.id===c?.id)||services.find(s=>s.type!==type&&s.preferred)||services.find(s=>s.type!==type)||services[0];
+  }
+  const initial=c||suggestedSource(owned);
+  const p=initial?.provider||'openai';
+  const defaultEndpoint=provider=>'https://api.'+provider+'.com/v1';
   const body=pick('vendor','服务商',[['openai','OpenAI','moon'],['deepseek','DeepSeek','sun']],p)+
     (type==='write'?input('model','写作模型',c?.model||defaultModel(p)):'<p>已配好两种声音，可先试听一句。</p>')+
-    fieldSecret('key','API Key')+'<details><summary>地址与用量</summary>'+input('endpoint','兼容 API 根地址',c?.endpoint||'https://api.'+p+'.com/v1',400)+
+    '<div id="key-source"></div>'+fieldSecret('key','API Key')+'<details><summary>地址与用量</summary>'+input('endpoint','兼容 API 根地址',initial?.endpoint||defaultEndpoint(p),400)+
     input('daily','每天最多生成次数（0 表示不限）',c?.perDay||0)+input('monthly','每月最多输入字数',c?.perMonth||0)+input('perStory','每次最多输入字数',c?.perStory||0)+'</details>'+
     '<label><input type="checkbox" name="shared" '+(c?.share?'checked':'')+'> 授权家庭其他成人使用</label><p class="hint">写作会发送想法、年龄段和避讳，配音发送正文。生成消耗所选服务的额度。</p>';
   dialog('连接'+typeName(type)+'服务',body,submitBtn(after?'保存并继续':'保存配置'),async d=>{
     const id=c?.managed?c.id:uid(),provider=d.get('vendor');
-    await api('configs/'+id,'PUT',{provider,type,model:d.get('model')||'',endpoint:d.get('endpoint').trim(),key:d.get('key').trim(),share:d.has('shared'),perDay:d.get('daily'),perMonth:d.get('monthly'),perStory:d.get('perStory')});
+    const keyFrom=d.get('keyFrom');
+    const credential=keyFrom?(keyFrom===id?{}:{keyFrom}):{key:d.get('key').trim()};
+    await api('configs/'+id,'PUT',{provider,type,model:d.get('model')||'',endpoint:d.get('endpoint').trim(),...credential,share:d.has('shared'),perDay:d.get('daily'),perMonth:d.get('monthly'),perStory:d.get('perStory')});
     if(c&&!c.managed)state.configs=state.configs.filter(x=>x.id!==c.id);
     (state.configDefaults||={})[cloudAdult+':'+type]=id;await refreshServices();save();await flushCloud();accepted();if(after)after();else render();
   });
+  const form=$('#dialog-form'),sourcePicker=$('#key-source');
+  const {vendor,endpoint,key,model}=form.elements;
+  function selectSource(id){
+    const source=owned.find(s=>s.id===id);
+    key.disabled=!!source;
+    key.required=!source;
+    key.closest('.field').hidden=!!source;
+    if(source){key.value='';endpoint.value=source.endpoint;}
+  }
+  function showSources(selected){
+    const services=owned.filter(s=>s.provider===vendor.value);
+    const choices=services.map(s=>[s.id,s.id===c?.id?'保留当前密钥':'复用'+typeName(s.type)+'密钥 · '+(s.model?s.model+' · ':'')+s.endpoint,s.type==='write'?'pen':'music']);
+    choices.push(['','输入新的 API Key','pen']);
+    sourcePicker.innerHTML=services.length?pick('keyFrom','API Key 来源',choices,selected):'';
+    selectSource(selected);
+  }
+  showSources(initial?.managed?initial.id:'');
+  sourcePicker.onchange=e=>selectSource(e.target.value);
+  vendor.onchange=()=>{
+    if(model)model.value=defaultModel(vendor.value);
+    key.value='';endpoint.value=defaultEndpoint(vendor.value);
+    showSources(suggestedSource(owned.filter(s=>s.provider===vendor.value))?.id||'');
+  };
+  endpoint.oninput=()=>{if(form.elements.keyFrom?.value)showSources('');};
 }
-document.addEventListener('change',e=>{if(e.target.name==='vendor'){
-  const model=$('#dialog-body [name=model]');if(model)model.value=defaultModel(e.target.value);
-  $('#dialog-body [name=endpoint]').value='https://api.'+e.target.value+'.com/v1';
-}});
 on('check-service',async(id,b)=>{
   b.disabled=true;b.innerHTML=icon('paw')+' 正在连接';
   try{notify((await api('configs/'+id+'/check','POST',{})).message);}
