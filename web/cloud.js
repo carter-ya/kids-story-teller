@@ -195,7 +195,10 @@ function cloudConfig(type,c,after){
     selectSource(selected);
   }
   showSources(initial?.managed?initial.id:'');
-  sourcePicker.onchange=e=>selectSource(e.target.value);
+  sourcePicker.onchange=e=>{
+    selectSource(e.target.value);
+    if(!key.disabled)key.focus();
+  };
   vendor.onchange=()=>{
     if(model)model.value=defaultModel(vendor.value);
     key.value='';endpoint.value=defaultEndpoint(vendor.value);

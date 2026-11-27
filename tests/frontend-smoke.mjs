@@ -40,6 +40,22 @@ try {
   async function reload(){const before=await js('performance.timeOrigin');await send('Page.reload');await until(async()=>{const after=await js('performance.timeOrigin');return after!==before;},'fresh document');}
   const exists=selector=>until(()=>js('!!document.querySelector('+JSON.stringify(selector)+')'),selector);
   async function click(selector){await exists(selector);await js('document.querySelector('+JSON.stringify(selector)+').click()');}
+  async function pressAt(selector,touch=false){
+    const point=await js(`(()=>{
+      const el=document.querySelector(${JSON.stringify(selector)});
+      el.scrollIntoView({block:'nearest'});
+      const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+      if(!el.contains(document.elementFromPoint(x,y)))throw Error('Control is covered');
+      return {x,y};
+    })()`);
+    if(touch){
+      await send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});
+      await send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    }else{
+      await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
+      await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
+    }
+  }
   async function fill(selector,value){await exists(selector);await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}))})()`);}
   async function captureDesign(name){
     if(!process.env.STORY_DESIGN_SHOTS)return;
@@ -132,9 +148,36 @@ try {
     assert.equal(await js("document.querySelector('[name=keyFrom]').value"),await js("cloudServices.find(s=>s.type==='write').id"));
     assert.equal(await js("document.querySelector('[name=key]').disabled"),true);
     await captureDesign('key-reuse');
-    await click('[aria-controls=pick-keyFrom-options]');await click('#pick-keyFrom-options [data-value=""]');
-    assert.equal(await js("document.querySelector('[name=key]').required"),true);
-    await click('[aria-controls=pick-keyFrom-options]');await click('#pick-keyFrom-options [role=option]');
+    const keyPicker='[aria-controls=pick-keyFrom-options]';
+    const newKey='#pick-keyFrom-options [data-value=""]';
+    const savedKey='#pick-keyFrom-options [role=option]';
+    let documented=false;
+    async function checkManualEntry(){
+      assert.equal(await js("document.querySelector('[name=keyFrom]').value"),'');
+      assert.equal(await js("document.activeElement===document.querySelector('[name=key]') && document.activeElement.checkVisibility() && document.activeElement.required"),true);
+      if(!documented){await captureDesign('manual-key-entry');documented=true;}
+      await send('Input.insertText',{text:'test-manual-entry'});
+      assert.equal(await js("new FormData(document.querySelector('#dialog-form')).get('key')"),'test-manual-entry');
+    }
+    for(const touch of [false,true]){
+      if(touch){
+        await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+        await send('Emulation.setTouchEmulationEnabled',{enabled:true});
+      }
+      await pressAt(keyPicker,touch);await pressAt(newKey,touch);
+      await checkManualEntry();
+      await pressAt(keyPicker,touch);await pressAt(savedKey,touch);
+      assert.equal(await js("document.querySelector('[name=key]').disabled && !document.querySelector('[name=key]').value"),true);
+    }
+    await send('Emulation.setTouchEmulationEnabled',{enabled:false});
+    await send('Emulation.clearDeviceMetricsOverride');
+    await js("document.querySelector('[aria-controls=pick-keyFrom-options]').focus()");
+    for(const key of ['End','Enter']){
+      await send('Input.dispatchKeyEvent',{type:'keyDown',key});
+      await send('Input.dispatchKeyEvent',{type:'keyUp',key});
+    }
+    await checkManualEntry();
+    await pressAt(keyPicker);await pressAt(savedKey);
     await click('#dialog-actions [type=submit]');
     await until(()=>js("cloudServices.some(s=>s.type==='voice') && !document.querySelector('#dialog').open"),'saved narration with writing key');
     await click('[data-act=family-tab][data-id=members]');await click('[data-act=lock]');await exists('.hero-art');

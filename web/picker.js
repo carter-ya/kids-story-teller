@@ -32,6 +32,11 @@ const pick = (() => {
     close();button.focus();
     input.dispatchEvent(new Event('change',{bubbles:true}));
   }
+  // Keep focus on the combobox until the option's click commits the value.
+  // Otherwise a modal can take focus on mousedown and close the list first.
+  document.addEventListener('mousedown',e=>{
+    if(e.button===0 && open?.contains(e.target.closest('[role=option]')))e.preventDefault();
+  });
   document.addEventListener('click',e=>{
     const button=e.target.closest('.picker [role=combobox]');
     if(button){const field=button.closest('.picker'); if(open===field)close();else expand(field);return;}
