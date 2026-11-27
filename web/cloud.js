@@ -17,7 +17,7 @@ async function cloudBoot(){
   if(r.status===404||(r.ok&&r.headers.get('content-type')?.includes('text/html')))return false;
   if(!r.ok)throw Error('家庭书架暂时不可用，请刷新重试。');
   const session=await r.json();if(session.cloud!==true)throw Error('无法识别家庭服务。');
-  cloud=true;showHomeLoading(Boolean(session.family));
+  cloud=true;selectLoadingPage({member:Boolean(session.family),known:true,kid:session.kid});
   try{await enterCloud(session);}catch(e){
     if(![401,403].includes(e.status))throw e;
     await api('session/logout','POST',{});await enterCloud({});

@@ -134,3 +134,48 @@ body:has(#mini:not([hidden])) .wrap{padding-bottom:122px}
 }
 
 .mail-code { font-variant-numeric:tabular-nums; letter-spacing:.32em; font-size:1.3rem }
+
+/* Keep the layout footprint, but suppress printed edges and book-spine overlays until ready. */
+body:has(#app[aria-busy]) .mast-inner,
+#app[aria-busy] :is(.mail-hero,.postcard,.cover,.hero,.hero-art,.visitor-steps,.visitor-steps .grid>div,.tabs,.card,.coach,.page-title,.list-row,.transcript,.storybook-player,.actions button){
+  border-color:transparent;box-shadow:none;text-decoration:none;
+}
+#app[aria-busy] :is(.postcard,.hero,.card,.coach,.transcript){background:transparent}
+#app[aria-busy] :is(.cover,.hero-art,.story-window)::before,
+#app[aria-busy] :is(.cover,.hero-art)::after{display:none}
+#app[aria-busy] .listen-dot{visibility:hidden}
+#app[aria-busy] .ghost{
+  display:block;background-color:#d4dfcf;background-image:var(--home-mask);background-attachment:fixed;background-size:100vw 100vh;
+  height:1em;max-width:100%;border-radius:4px;
+}
+#app[aria-busy] .ghost.heading{width:5em;height:1em;font-size:clamp(2rem,4vw,3.2rem)}
+#app[aria-busy] .ghost.subheading{width:8em;height:1.6em;margin:10px 0}
+#app[aria-busy] .ghost.line{width:17em;margin:12px 0}
+#app[aria-busy] .ghost.text-short{width:5.5em}
+#app[aria-busy] .ghost.field-area,#app[aria-busy] .ghost.sheet{height:8em;margin:18px 0}
+#app[aria-busy] .ghost.sheet{height:16em}
+#app[aria-busy] .ghost.field-input,#app[aria-busy] .ghost.list-entry{height:46px;margin:15px 0}
+#app[aria-busy] .ghost.action{width:7em;height:44px}
+#app[aria-busy] :is(.guide-loading-form,.join-loading-form){max-width:600px;margin:16px auto}
+#app[aria-busy] .join-loading-form{max-width:430px;margin-block:12vh}
+#app[data-loading-page=player]{--home-mask:linear-gradient(104deg,#34495e calc(var(--home-light) - 14vw),#495e73 var(--home-light),#34495e calc(var(--home-light) + 14vw))}
+#app[data-loading-page=player] .ghost{background-color:#34495e}
+#app[aria-busy] .ghost.square{width:100%;height:auto;aspect-ratio:1}
+#app[aria-busy] .ghost.track{height:6px;margin-block:34px}
+#app[aria-busy] .ghost.side-key,#app[aria-busy] .ghost.play-key{width:44px;height:44px;border-radius:50%}
+#app[aria-busy] .ghost.play-key{width:70px;height:70px}
+#app[aria-busy] .room-nav{min-height:44px}
+@media(prefers-reduced-motion:reduce){#app[data-loading-page=player]{--home-mask:none}}
+/* The round play marker belongs to the cover button and shares its hit area. */
+.sample-shelf .listen-dot,.sample-shelf .cover{transition:transform .16s ease-out,background-color .16s,color .16s,box-shadow .16s}
+.sample-shelf .book-title{transition:color .16s,transform .16s}
+@media(hover:hover){
+  #app:not([aria-busy]) .sample-shelf .cover:hover .listen-dot{transform:scale(1.12);color:#fff9eb;background:var(--red);box-shadow:1px 2px var(--ink)}
+  #app:not([aria-busy]) .sample-shelf .book-title:hover{color:var(--red);text-decoration:underline;text-underline-offset:.2em}
+}
+.sample-shelf .cover:focus-visible .listen-dot{background:var(--red);color:#fff9eb}
+.sample-shelf .cover:active{transform:translateY(2px);box-shadow:none}
+#app:not([aria-busy]) .sample-shelf .cover:active .listen-dot{transform:scale(.92);background:var(--ink);color:var(--honey)}
+.sample-shelf .book-title:active{transform:translateY(1px);color:var(--red)}
+.mast[inert] #sign-in,.mast[inert] .profile{border-color:transparent;box-shadow:none;background:#e1dfd2;color:transparent}
+.mast[inert] .profile .avatar{visibility:hidden}
