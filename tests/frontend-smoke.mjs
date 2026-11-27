@@ -50,6 +50,9 @@ try {
   await send('Runtime.enable');
   await send('Page.enable');
   if(fixture)await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+    window.EventSource=class extends EventSource{
+      constructor(...args){super(...args);this.addEventListener('message',()=>window.seenStoryStream=true);}
+    };
     window.turnstile={render(el,opts){queueMicrotask(()=>opts.callback('fixture-'+crypto.randomUUID()));return 'fixture-widget'},remove(){}};
   `});
   if(process.argv.includes('--home-layout')){
@@ -97,6 +100,20 @@ try {
     assert.equal(await js("document.querySelector('[name=title]').value"),'云端故事');
     await click('[data-nav=create]');await fill('[name=idea]','消防车嘟嘟，播放时长2小时左右的故事，给3岁孩子讲不同的场景和英文单词。');
     await click('#new-story [type=submit]');await fill('[name=key]','browser-fixture-only');await click('#dialog-actions [type=submit]');
+    const seesDraft=()=>js("document.querySelector('[data-reader-draft]')?.textContent.includes('嘟嘟打开车灯')");
+    await until(seesDraft,'live chapter text before completion');
+    assert.match(await js("document.querySelector('[data-reader-saved]').textContent"),/第2章 第2站/);
+    await reload();await until(seesDraft,'restored live chapter');
+    await js('scrollTo(0,300)');const readingY=await js('scrollY');
+    fixture.advanceDraft();
+    await until(()=>js("document.querySelector('[data-reader-draft]')?.textContent.includes('小兔跳上车')"),'second streamed paragraph');
+    assert.equal(await js('scrollY'),readingY);
+    await click('[data-act=jump-draft]');
+    await captureDesign('live-writing');
+    assert.equal(await js("window.seenStoryStream===true"),true);
+    fixture.finishDraft();
+    await until(()=>js("!!document.querySelector('[data-act=finish-reading]:not([hidden]),[data-act=open-chapter]')"),'completed reader');
+    if(await js("!!document.querySelector('[data-act=finish-reading]:not([hidden])')"))await click('[data-act=finish-reading]');
     await exists('[data-act=open-chapter]');
     assert.equal(await js("document.querySelector('[name=title]').value"),'嘟嘟的小城巡游');
     assert.equal(await js("manuscriptChapters(document.querySelector('[name=text]').value).length"),24);
@@ -151,6 +168,7 @@ try {
   assert.equal(await js("document.querySelector('[name=title]').value"),'小狐狸的羽毛来信');
   await fill('[name=text]','小狐狸在云朵上吃晚餐。晚安。');await click('#edit-form [type=submit]');
   await click('[data-act=record]');await click('#dialog-actions [type=submit]');await click('#dialog-actions [type=submit]');
+  await exists('[data-reader-saved]');assert.equal(await js("document.querySelector('[data-reader-saved]').textContent"),'小狐狸在云朵上吃晚餐。晚安。');
   await exists('[data-act=publish]');assert.match(await js("document.querySelector('.coach').textContent"),/4 \/ 5/);await click('[data-act=publish]');await click('#dialog-actions [type=submit]');
   await exists('[data-act=tour-listen]');await click('[data-act=tour-listen]');
   await exists('.storybook-player');assert.equal(await js('state.tourV2.step'),0);

@@ -186,3 +186,12 @@ body:has(#app[aria-busy]) .mast-inner,
 .mast[inert] .profile .avatar{visibility:hidden}
 
 #app[aria-busy] .transcript{min-height:68px;display:flex;align-items:center}
+
+.live-reader .reader-paper{max-width:48rem;margin:1rem auto;padding:clamp(1.2rem,4vw,3rem)}
+.reader-paper h1{font-size:clamp(1.6rem,4vw,2.4rem);overflow-wrap:anywhere}
+.reader-tools{position:sticky;top:0;z-index:1;background:#fffaf1;border-block-end:1px solid #d9caaa;padding:.45rem 0}
+.reader-tools .actions:has(> [hidden]:first-child + [hidden]:last-child){display:none}
+.reader-paper [data-reader-status]{margin:.25rem 0;color:var(--ink);font-weight:650}
+.reader-prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.95}
+.reader-prose:not(:empty){margin-block:1.35rem}
+.reader-paper [data-reader-current]{border-top:1px solid #d9caaa;padding-top:1.25rem;scroll-margin-top:9rem}

@@ -29,7 +29,7 @@ const upstream=`let once=true;let code;const read=new Set();export default {asyn
 }}`;
 
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[
-  { name:'app',modules:['worker','email','maintenance','assets','common','accounts','configs','family','generation','providers','story-writing'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
+  { name:'app',modules:['worker','email','maintenance','assets','common','accounts','configs','family','generation','providers','story-writing','writing-stream'].map(name=>({type:'ESModule',path:'server/'+name+'.mjs'})),compatibilityDate:'2026-08-01',
     outboundService:'provider-fixture',d1Databases:['DB'],r2Buckets:['FILES'],
     queueProducers:{JOBS:'audio'},queueConsumers:{audio:{maxBatchSize:1,maxBatchTimeout:0}},
     bindings:{TURNSTILE_SITE_KEY:'fixture-public',TURNSTILE_SECRET_KEY:'fixture-private',RESEND_API_KEY:'fixture',RESEND_FROM:'post@example.test',VAULT_KEY:randomBytes(32).toString('hex')} },
@@ -37,7 +37,7 @@ const mf=new Miniflare(convertV4MiniflareOptions({workers:[
 ]}));
 try{
   const db=await mf.getD1Database('DB','app');
-  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql','0006_email_login.sql','0007_retire_legacy.sql','0008_story_chapters.sql']){
+  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql','0006_email_login.sql','0007_retire_legacy.sql','0008_story_chapters.sql','0009_writing_preview.sql']){
     let sql='';
     for(const line of readFileSync('migrations/'+fn,'utf8').trim().split('\n')){
       sql+=line+'\n';

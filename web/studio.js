@@ -10,6 +10,67 @@ function buildText(s){
   return `“${s.idea}。”${who}把这个念头写进信封，放在窗台上。\n\n天刚擦黑，小狐狸邮差就来了。它举起小灯，沿着蒲公英小路走，一步，两步。风吹响树叶，小狐狸停下脚步，听见一只迷路的小鸟在轻轻哼歌。\n\n“我们一起走吧。”它把灯提得高了一点。月光下，小鸟看见熟悉的屋顶，扇扇翅膀飞回了家。\n\n等小狐狸回到窗前，信封里多了一根小羽毛。它轻轻说：“晚安。明天，这里还有新的故事。”`;
 }
 function jobLabel(j){return j.type==='write'?'小狐狸正在写故事':'小狐狸正在准备朗读'}
+// Keep transient previews out of the synced family shelf.
+const readingProgress=new WeakMap();
+function progressLabel(job,view){
+  if(!cloud)return jobLabel(job);
+  if(view?.reconnecting)return '正在重新连接，稍后更新进度';
+  if(!view)return '正在同步稿件和任务状态…';
+  if(view.status==='done')return '全文已保存';
+  const count=view.chapters?'已保存 '+view.completed+' / '+view.chapters+' 章 · ':'';
+  if(view.status==='queued')return count+(view.chapters?'下一章正在排队':'稿件已保存，正在排队');
+  if(job.type==='voice')return '正在配音'+(view.completed?' · 已完成 '+view.completed+' 段':'');
+  const labels={intent:'正在确认朗读时长',outline:'正在构思书名和章节',revising:'正在调整本段篇幅'};
+  return count+(labels[view.phase]||(view.chapters?'正在写第 '+(view.completed+1)+' 章':'正在写正文'));
+}
+function readerContent(s,job,view){
+  const heading=view?.currentChapter?'第 '+(view.completed+1)+' 章　'+view.currentChapter:'';
+  return {
+    title:view?.title||s.title,
+    status:progressLabel(job,view),
+    saved:view?.savedText||s.text||'',
+    heading,
+    draft:view?.draft||'',
+    showDraft:job.type==='write' && !!(heading||view?.draft),
+    canLeave:cloud && !!view && !view.reconnecting
+  };
+}
+function jobReader(s,job){
+  const v=readerContent(s,job,readingProgress.get(job));
+  return `<div class="wrap section-page live-reader" id="job-reader">
+    <div class="actions">${act('create','回稿架','light')}</div>
+    <article class="card reader-paper"><h1 data-reader-title>${html(v.title)}</h1>
+    <div class="reader-tools"><p role="status" data-reader-status>${html(v.status)}</p>
+    <small data-reader-leave ${v.canLeave?'':'hidden'}>可以回稿架，任务会在后台继续。</small>
+    <div class="actions"><button type="button" class="light" data-act="jump-draft" ${v.saved&&v.showDraft?'':'hidden'}>跳到正在写的章节</button><button type="button" class="primary" data-act="finish-reading" hidden>打开完整稿件</button></div></div>
+    <div class="reader-prose" data-reader-saved>${html(v.saved)}</div>
+    <section data-reader-current ${v.showDraft?'':'hidden'}><small>草稿生成中</small><h2 data-reader-heading>${html(v.heading)}</h2>
+    <div class="reader-prose" data-reader-draft>${html(v.draft)}</div></section>
+    </article></div>`;
+}
+on('jump-draft',()=>$('#job-reader [data-reader-current]')?.scrollIntoView({block:'start'}));
+on('finish-reading',render);
+function showJobProgress(id,job,view){
+  readingProgress.set(job,view);
+  if(page==='create'){
+    const row=document.getElementById('job-label-'+id);
+    if(row)row.textContent=progressLabel(job,view);
+    const title=row?.closest('.list-row')?.querySelector('h3');
+    if(title && view.title)title.textContent=view.title;
+  }
+  if(page!=='edit'||routeId!==id||!$('#job-reader'))return;
+  const v=readerContent(story(id),job,view);
+  for(const name of ['title','status','saved','heading','draft']){
+    const el=$('[data-reader-'+name+']');
+    const previous=el.textContent;
+    if(previous===v[name])continue;
+    if(name==='saved' && v.saved.startsWith(previous))el.append(v.saved.slice(previous.length));
+    else el.textContent=v[name];
+  }
+  $('[data-reader-current]').hidden=!v.showDraft;
+  $('[data-act=jump-draft]').hidden=!(v.saved&&v.showDraft);
+  $('[data-reader-leave]').hidden=!v.canLeave;
+}
 function schedule(id){
   if(cloud)return cloudPoll(id);
   if(jobTimers.has(id))return;
@@ -52,7 +113,7 @@ function quotaMessage(msg){
 on('dismiss',closeDialog);
 function library(){
   const stories=state.stories.filter(s=>(studioTab==='all'||(studioTab==='published'?s.published&&!s.archived:studioTab==='archive'?s.archived:!s.published&&!s.archived))&&(!libraryQuery||[s.title,s.series,s.idea].join(' ').includes(libraryQuery))&&(libraryChild==='all'||s.published?.kids.includes(libraryChild))).sort((a,b)=>b.updated-a.updated);
-  return stories.length?stories.map(s=>`<div class="list-row"><img class="thumb" src="${cover(s.cover)}" alt=""><div class="grow"><h3>${html(s.title)}</h3><small>${state.jobs[s.id]?jobLabel(state.jobs[s.id]):s.archived?'已归档':s.published?'已发布':'草稿'}${s.series?' · '+html(s.series):''}</small></div>${act('edit','打开','secondary',s.id)}</div>`).join(''):empty('这里还没有故事','写下一句话，或者导入已有的故事。');
+  return stories.length?stories.map(s=>`<div class="list-row"><img class="thumb" src="${cover(s.cover)}" alt=""><div class="grow"><h3>${html(readingProgress.get(state.jobs[s.id])?.title||s.title)}</h3><small id="job-label-${html(s.id)}">${state.jobs[s.id]?html(progressLabel(state.jobs[s.id],readingProgress.get(state.jobs[s.id]))):s.writeError?'写作中断':s.archived?'已归档':s.published?'已发布':'草稿'}${s.series?' · '+html(s.series):''}</small></div>${act('edit','打开','secondary',s.id)}</div>`).join(''):empty('这里还没有故事','写下一句话，或者导入已有的故事。');
 }
 function studio(){
   return `<div class="wrap section-page writing-desk">${coach(2)}${title('写故事','记下一个点子，或把写好的稿子带来。')}<div class="desk-spread"><section class="card manuscript"><div class="row between"><h2>${importMode?'导入故事':'今晚想讲什么？'}</h2>${act('mode',importMode?'从一个想法开始':'导入已有故事','light')}</div>
@@ -87,13 +148,13 @@ function manuscriptChapters(text){
 function editor(){
   const s=story(routeId);if(!s)return '<div class="wrap">'+empty('找不到这篇作品','回稿架挑另一篇。',act('create','我的稿架'))+'</div>';
   const job=state.jobs[s.id];
-  if(job)return `<div class="wrap section-page"><div class="card wait" role="status"><span class="bob" aria-hidden="true">${icon('fox',50)}${icon(job.type==='write'?'pen':'headphones',28)}</span><h2>${jobLabel(job)}</h2><p id="job-progress">${job.chapters?'已完成 '+Number(job.completed)+' / '+Number(job.chapters)+' 章':'当前稿件已保存，可以稍后回来。'}</p><div class="bone"></div>${act('create','回稿架')}</div></div>`;
+  if(job)return jobReader(s,job);
   const chapters=cloud?manuscriptChapters(s.text):[];
   return `<div class="wrap section-page editing-desk">${state.tourV2?.story===s.id?coach(3)+coach(4):''}${act('create','我的稿架','light')}<div class="head"><h1 style="font-size:2.2rem">改稿与录音</h1><span class="pill">${s.archived?'已归档':s.published?'已发布 · 可继续改稿':'草稿'}</span></div>
   <div class="card"><form id="edit-form">${input('title','标题',s.title)}${area('text','故事正文',s.text,8)}
   <small id="save-state">${cloud?'草稿自动同步到家庭书架':'草稿自动保存于当前浏览器'}</small><details><summary>封面、系列与版本</summary>${pick('cover','封面主题',s.cover?.startsWith('cover-')?[...covers,[s.cover,'我的图片','flower']]:covers,s.cover)}${cloud?'<label>上传自己的封面<input type="file" accept="image/png,image/jpeg,image/webp" id="cover-upload"></label>':''}${input('series','系列',s.series)}
   <div class="check-list">${s.versions.map((v,i)=>act('restore','恢复「'+html(v.title)+'」 · '+new Date(v.at).toLocaleTimeString(),'secondary',String(i))).join('')||'保存版本后可在这里恢复。'}</div></details>
-  <div class="actions">${submitBtn('保存版本')}${act('rewrite','改写一段','secondary')}${s.failedWrite&&s.failedWrite.actor===cloudAdult?act('retry-write','继续写作（已完成 '+Number(s.failedWrite.completed)+' 章）','primary'):!s.text?act('regen','生成草稿','secondary'):''}</div></form></div>
+  <p role="status" ${s.writeError?'':'hidden'}>${html(s.writeError)}</p><div class="actions">${submitBtn('保存版本')}${act('rewrite','改写一段','secondary')}${s.failedWrite&&s.failedWrite.actor===cloudAdult?act('retry-write','继续写作（已完成 '+Number(s.failedWrite.completed)+' 章）','primary'):!s.text?act('regen','生成草稿','secondary'):''}</div></form></div>
   <div class="card"><h2>给故事配音</h2><p class="hint">${chapters.length?'可选一章建立独立配音稿，试听后生成这一章的朗读。':cloud?'用选好的声音先试读一句，听好后再合成整篇。':'本地体验使用设备中文朗读。'}</p>
   ${pick('voice','声音',voices,state.prefs[state.kid]?.voice||voices[0][0])}<div class="actions">${act('short-preview','试听一句')}${!chapters.length||s.text.length<=4000?act('record','生成朗读','primary'):''}</div>
   ${chapters.length?pick('record-chapter','按章配音',chapters.map((ch,i)=>[String(i),ch.title]),'0')+act('open-chapter','打开本章配音稿','secondary'):''}
