@@ -12,8 +12,7 @@ export async function accounts(req,env,session,id){
   if(req.method==='POST'&&!id){
     const {name}=await readJson(req);
     requireValue(typeof name==='string'&&name.trim()&&name.trim().length<=24,400,'请填写昵称。');
-    const row=await env.DB.prepare('SELECT personal_login,profile_count FROM families WHERE id=?').bind(session.family).first();
-    requireValue(row.personal_login,409,'请先为旧家庭绑定邮箱。');
+    const row=await env.DB.prepare('SELECT profile_count FROM families WHERE id=?').bind(session.family).first();
     // Older families started with a conservative count until their first shelf edit.
     if(row.profile_count===20){
       const current=await shelf(env,session.family);

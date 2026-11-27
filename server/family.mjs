@@ -21,15 +21,13 @@ async function sessionResponse(req,env,family,kid,old,extra={},adult='owner'){
 }
 export async function apiSession(req,env,path,session){
   if(path==='/api/session'&&req.method==='GET'){
-    const emailBound=session && session.kid===null && Boolean(await env.DB.prepare(
-      'SELECT 1 FROM email_accounts WHERE family=? AND adult=?').bind(session.family,session.adult).first());
-    return json({cloud:true,family:session?.family||null,kid:session?.kid||null,adult:session?.kid?null:session?.adult,emailBound:Boolean(emailBound)});
+    return json({cloud:true,family:session?.family||null,kid:session?.kid||null,adult:session?.kid?null:session?.adult});
   }
   if(req.method!=='POST')return;
   if(path==='/api/session/email/send')return sendEmailCode(req,env);
   if(path==='/api/session/email/verify'){
     const {family,adult}=await verifyEmailCode(req,env,session);
-    return sessionResponse(req,env,family,null,session,{emailBound:true},adult);
+    return sessionResponse(req,env,family,null,session,{},adult);
   }
   if(path==='/api/session/logout'){
     if(session)await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(session.token).run();

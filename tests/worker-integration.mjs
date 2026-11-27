@@ -36,7 +36,7 @@ const mf=new Miniflare(convertV4MiniflareOptions({workers:[
 ]}));
 try{
   const db=await mf.getD1Database('DB','app');
-  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql','0006_email_login.sql']){
+  for(const fn of ['0001_family.sql','0002_generation.sql','0003_accounts.sql','0004_media.sql','0005_maintenance.sql','0006_email_login.sql','0007_retire_legacy.sql']){
     let sql='';
     for(const line of readFileSync('migrations/'+fn,'utf8').trim().split('\n')){
       sql+=line+'\n';
